@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-// جلب المفتاح من إعدادات Vercel
+// جلب المفتاح
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const Header = () => (
@@ -18,12 +18,11 @@ export default function App() {
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // متغير لعرض رد السيرفر الخام (للتأكد من طريقة Nano Banana)
+  // لعرض رد السيرفر الخام (Debugging)
   const [serverLog, setServerLog] = useState<string>(""); 
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // دالة تحويل الملف إلى Base64 للإرسال
   const fileToBase64 = (file: File) => {
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -35,7 +34,7 @@ export default function App() {
 
   const handleNanoBananaGen = async (file: File) => {
     if (!API_KEY) {
-      setErrorMsg("مفتاح API مفقود! تأكد من إعدادات Vercel.");
+      setErrorMsg("مفتاح API مفقود!");
       return;
     }
 
@@ -47,10 +46,9 @@ export default function App() {
     try {
       const base64Data = await fileToBase64(file);
 
-      // --- تطبيق طريقة Nano Banana (Server-Side Generation) ---
-      // نستخدم fetch للاتصال المباشر بموديل Gemini 2.0 Flash Exp
+      // --- استخدام الموديل المحدد: gemini-2.5-flash-image ---
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${API_KEY}`,
         {
           method: 'POST',
           headers: {
@@ -60,15 +58,16 @@ export default function App() {
             contents: [{
               role: 'user',
               parts: [
-                // 1. الصورة الأصلية
+                // 1. الصورة الأصلية (Base64)
                 { inline_data: { mime_type: file.type, data: base64Data } },
                 // 2. البرومبت الثابت (كما طلبت)
                 { text: "make this image into Van Gogh style painting" }
               ]
             }],
+            // إعدادات التوليد
             generationConfig: {
-              temperature: 0.4, 
-              // إعدادات لضمان جودة الصورة
+              temperature: 0.4,
+              candidateCount: 1 
             }
           })
         }
@@ -76,19 +75,20 @@ export default function App() {
 
       const data = await response.json();
       
-      // تخزين الرد الخام (للتشخيص)
+      // تخزين الرد الخام
       setServerLog(JSON.stringify(data, null, 2));
 
       if (!response.ok) {
-        throw new Error(data.error?.message || "فشل الاتصال بخدمة جوجل");
+        // إذا كان الموديل غير متاح بعد للعامة، سيظهر الخطأ هنا
+        throw new Error(data.error?.message || `Error ${response.status}: فشل الاتصال بالموديل`);
       }
 
-      // --- استخراج الصورة من رد جوجل ---
+      // --- استخراج الصورة المولدة ---
       let foundImage = false;
       if (data.candidates && data.candidates.length > 0) {
         const parts = data.candidates[0].content.parts;
         for (const part of parts) {
-          // Gemini يرسل الصور المولدة كـ inline_data
+          // في Gemini Image Model، الصورة تأتي كـ inline_data
           if (part.inline_data && part.inline_data.data) {
              setResultImage(`data:${part.inline_data.mime_type};base64,${part.inline_data.data}`);
              foundImage = true;
@@ -98,13 +98,12 @@ export default function App() {
       }
 
       if (!foundImage) {
-        // إذا السيرفر رد بنص بدل صورة
-        setErrorMsg("السيرفر استجاب، لكنه لم يرسل ملف صورة (قد يكون الموديل في منطقتك يدعم تحليل الصور فقط حالياً). راجع السجل بالأسفل.");
+        setErrorMsg("الموديل استجاب لكنه لم يرسل صورة. (قد يكون الرد نصياً فقط، راجع السجل بالأسفل).");
       }
 
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(`خطأ في الاتصال: ${err.message}`);
+      setErrorMsg(`خطأ: ${err.message}`);
       setServerLog(prev => prev + "\nEXCEPTION: " + JSON.stringify(err, null, 2));
     } finally {
       setIsProcessing(false);
@@ -127,17 +126,17 @@ export default function App() {
       <Header />
       
       <main className="flex-1 p-5 max-w-4xl mx-auto w-full">
-        <h1 className="text-4xl font-black text-[#1a237e] text-center mb-4">ماذا لو رسمك فان جوخ؟</h1>
-        <p className="text-center text-slate-600 mb-10 text-lg">الرسم السحابي (Nano Banana Method)</p>
+        <h1 className="text-4xl font-black text-[#1a237e] text-center mb-4">Nano Banana 🍌</h1>
+        <p className="text-center text-slate-600 mb-10 text-lg">تجربة موديل Gemini 2.5 Flash Image</p>
 
         {!selectedImage ? (
           <div 
             onClick={() => fileInputRef.current?.click()}
             className="border-4 border-dashed border-[#fbc02d] rounded-3xl p-10 text-center cursor-pointer bg-white hover:-translate-y-1 transition-transform shadow-sm"
           >
-            <div className="text-6xl mb-4">🍌</div>
+            <div className="text-6xl mb-4">🖼️</div>
             <h3 className="text-2xl font-bold text-[#1a237e]">اضغط لرفع صورتك</h3>
-            <p className="text-slate-500 mt-2">Server-Side Generation</p>
+            <p className="text-slate-500 mt-2">Server-Side Image Gen</p>
             <input type="file" ref={fileInputRef} onChange={onFileChange} accept="image/*" className="hidden" />
           </div>
         ) : (
@@ -151,12 +150,12 @@ export default function App() {
 
               {/* النتيجة */}
               <div className="flex-1 min-w-[300px] max-w-[400px]">
-                <h3 className="text-center font-bold text-[#1a237e] mb-2">النتيجة (من جوجل)</h3>
+                <h3 className="text-center font-bold text-[#1a237e] mb-2">النتيجة (Gemini 2.5)</h3>
                 
                 {isProcessing ? (
                   <div className="h-[300px] flex flex-col items-center justify-center bg-white rounded-2xl border-2 border-[#fbc02d]">
-                    <div className="text-4xl animate-spin mb-4">⏳</div>
-                    <p className="font-bold text-[#1a237e]">جاري التوليد السحابي...</p>
+                    <div className="text-4xl animate-spin mb-4">🍌</div>
+                    <p className="font-bold text-[#1a237e]">جاري الرسم السحابي...</p>
                   </div>
                 ) : resultImage ? (
                   <div className="relative rounded-2xl overflow-hidden border-8 border-double border-[#1a237e] shadow-xl">
@@ -164,7 +163,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="h-[300px] flex flex-col items-center justify-center bg-slate-100 rounded-2xl border-2 border-dashed border-gray-300 p-4 text-center">
-                    <p className="text-gray-500 font-bold mb-2">لم يتم استلام صورة</p>
+                    <p className="text-gray-500 font-bold mb-2">بانتظار الصورة...</p>
                     {errorMsg && <p className="text-sm text-red-500">راجع السجل بالأسفل 👇</p>}
                   </div>
                 )}
@@ -177,7 +176,7 @@ export default function App() {
                   onClick={() => imageFile && handleNanoBananaGen(imageFile)}
                   className="bg-[#1a237e] text-white px-10 py-4 rounded-full text-xl font-bold shadow-lg hover:bg-[#151b60] transition-colors"
                 >
-                  🚀 إرسال لجوجل (Nano Banana)
+                  🚀 إرسال (Gemini 2.5 Flash Image)
                 </button>
               )}
               
@@ -186,7 +185,7 @@ export default function App() {
                  <button onClick={() => {setSelectedImage(null); setResultImage(null);}} className="text-[#1a237e] border-2 border-[#1a237e] px-6 py-3 rounded-full font-bold hover:bg-slate-50">
                    تجربة جديدة
                  </button>
-                 <a href={resultImage} download="google-generated-art.png" className="bg-[#fbc02d] text-[#1a237e] px-8 py-3 rounded-full font-bold shadow-md hover:bg-[#f9a825]">
+                 <a href={resultImage} download="gemini-2.5-art.png" className="bg-[#fbc02d] text-[#1a237e] px-8 py-3 rounded-full font-bold shadow-md hover:bg-[#f9a825]">
                    حفظ الصورة ⬇
                  </a>
                 </div>
@@ -195,12 +194,12 @@ export default function App() {
           </div>
         )}
 
-        {/* --- منطقة السجل (للتأكد من عمل الـ Nano Banana) --- */}
+        {/* --- منطقة السجل (لفحص الرد) --- */}
         {(serverLog || errorMsg) && (
           <div className="mt-12 text-left bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-2xl" dir="ltr">
             <div className="bg-gray-800 px-4 py-2 border-b border-gray-700 flex justify-between items-center">
               <span className="text-gray-300 font-mono text-sm">Server Response Log</span>
-              <span className="text-xs text-gray-500">Gemini 2.0 Flash Exp</span>
+              <span className="text-xs text-gray-500">Model: gemini-2.5-flash-image</span>
             </div>
             <div className="p-4 font-mono text-xs overflow-x-auto max-h-[400px] overflow-y-auto">
               {errorMsg && <div className="text-red-400 mb-4 font-bold">STATUS: {errorMsg}</div>}
