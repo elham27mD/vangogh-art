@@ -1,9 +1,6 @@
-// services/geminiService.ts
-
 export const transformToVanGogh = async (base64Image: string): Promise<string> => {
   
-  // لا تقم بأي تعديل أو قص للنص (مثل split)
-  // Replicate يحتاج المقدمة (data:image...) ليعرف نوع الملف
+  // لا تقم بأي تعديل هنا. أرسل الـ Base64 كما هو.
   
   try {
     const response = await fetch("/api/generate", {
@@ -12,7 +9,7 @@ export const transformToVanGogh = async (base64Image: string): Promise<string> =
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        image: base64Image // نرسل النص كما خرج من الضاغط
+        image: base64Image
       }),
     });
 
@@ -20,14 +17,13 @@ export const transformToVanGogh = async (base64Image: string): Promise<string> =
 
     if (!response.ok) {
       console.error("Server API Error:", data); 
-      throw new Error(data.error || "فشل الاتصال بخدمة المعالجة");
+      throw new Error(data.error || "فشل الاتصال بالموديل");
     }
 
-    // إرجاع رابط الصورة الجاهز من Replicate
     return data.output;
     
   } catch (error: any) {
     console.error("Service Error:", error);
-    throw new Error(error.message || "حدث خطأ غير متوقع أثناء الاتصال");
+    throw new Error(error.message || "حدث خطأ غير متوقع");
   }
 };
