@@ -1,7 +1,7 @@
-// api/generate.js
 import Replicate from "replicate";
 
 export default async function handler(req, res) {
+  // 1. السماح فقط بطلبات POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -13,30 +13,37 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // استخدام موديل Instruct-Pix2Pix
+    console.log("🚀 Starting SDXL Generation...");
+
+    // استخدام موديل SDXL (الأقوى والأكثر استقراراً)
     const output = await replicate.run(
-      "timbrooks/instruct-pix2pix:30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f",
+      "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b7159d722d8b1dd",
       {
         input: {
-          image: image,
-          // البرومبت: نأمره بتحويل الستايل فقط
-          prompt: "make it into a vincent van gogh oil painting, thick brushstrokes, artistic style",
+          image: image, // الصورة (Base64)
           
-          // ⚠️ أهم نقطة: هذا الرقم يحدد مدى التزام الموديل بالصورة الأصلية
-          // 1.5 = التزام متوازن
-          // 2.0 = التزام قوي بالصورة الأصلية (جرب رفعه إذا شطح الموديل)
-          image_guidance_scale: 1.8, 
+          // البرومبت: وصف دقيق للستايل
+          prompt: "oil painting style of Vincent Van Gogh, thick impasto brushstrokes, swirling patterns, starry night colors, artistic masterpiece, highly detailed",
           
-          // عدد الخطوات (20-50). كلما زاد، زادت الجودة والوقت
-          num_inference_steps: 30,
+          // ما الذي لا نريده (Negative Prompt)
+          negative_prompt: "text, watermark, writing, blurry, ugly, distorted, low quality, photography, realistic, bad anatomy",
+          
+          // قوة التغيير (0.0 إلى 1.0)
+          // 0.65 = يحافظ على شكل الشخص والملابس بنسبة جيدة ويغير الستايل
+          prompt_strength: 0.65, 
+          
+          // عدد الخطوات (الجودة)
+          num_inference_steps: 30
         }
       }
     );
 
+    console.log("✅ Success:", output);
+    // SDXL يعيد مصفوفة، نأخذ الرابط الأول
     res.status(200).json({ output: output[0] });
 
   } catch (error) {
-    console.error("Replicate Error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Replicate Error:", error);
+    res.status(500).json({ error: error.message || "حدث خطأ في السيرفر" });
   }
 }
