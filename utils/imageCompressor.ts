@@ -1,5 +1,3 @@
-// utils/imageCompressor.ts
-
 export const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -12,14 +10,13 @@ export const compressImage = (file: File): Promise<string> => {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         
-        // الحجم 512 بكسل هو المعيار الذهبي لموديلات الذكاء الاصطناعي (مثل Pix2Pix)
-        // يضمن سرعة المعالجة ويمنع امتلاء ذاكرة السيرفر
-        const MAX_WIDTH = 512; 
+        // 640px هو الحجم المثالي لموديلات SDXL (توازن بين الجودة والسرعة والذاكرة)
+        const MAX_WIDTH = 640; 
         
         let width = img.width;
         let height = img.height;
 
-        // خوارزمية الحفاظ على أبعاد الصورة (Aspect Ratio)
+        // الحفاظ على الأبعاد (Aspect Ratio)
         if (width > height) {
           if (width > MAX_WIDTH) {
             height *= MAX_WIDTH / width;
@@ -36,10 +33,15 @@ export const compressImage = (file: File): Promise<string> => {
         canvas.height = height;
 
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
+        // رسم خلفية بيضاء لتجنب مشاكل الصور الشفافة (PNG)
+        if (ctx) {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, width, height);
+        }
 
-        // التحويل إلى JPEG بجودة 90%
-        // النتيجة تكون نصاً يبدأ بـ data:image/jpeg;base64... وهو المطلوب تماماً
+        // التحويل لـ JPEG بجودة عالية (0.9)
+        // هذا يضمن وجود "data:image/jpeg;base64,..."
         const compressedBase64 = canvas.toDataURL('image/jpeg', 0.9);
         
         resolve(compressedBase64);
