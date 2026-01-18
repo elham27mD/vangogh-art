@@ -9,28 +9,39 @@ export const compressImage = (file: File): Promise<string> => {
       
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        // نستخدم 1000 بكسل كحد أقصى للعرض (هذا يحول الصورة من 5MB إلى حوالي 200KB)
-        const MAX_WIDTH = 1000; 
-        const scaleSize = MAX_WIDTH / img.width;
         
-        const newWidth = (img.width > MAX_WIDTH) ? MAX_WIDTH : img.width;
-        const newHeight = (img.width > MAX_WIDTH) ? img.height * scaleSize : img.height;
+        // ⚠️ التعديل هنا: خفضنا الرقم من 1000 إلى 512
+        // موديلات "Pix2Pix" مصممة لتعمل بدقة 512x512 بشكل أساسي
+        const MAX_WIDTH = 512; 
+        
+        let width = img.width;
+        let height = img.height;
 
-        canvas.width = newWidth;
-        canvas.height = newHeight;
+        // حساب الأبعاد الجديدة مع الحفاظ على التناسب
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_WIDTH) {
+            width *= MAX_WIDTH / height;
+            height = MAX_WIDTH;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
 
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, newWidth, newHeight);
+        ctx?.drawImage(img, 0, 0, width, height);
 
-        // الضغط بنسبة 70%
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+        // ضغط الجودة قليلاً
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
         
         resolve(compressedBase64);
       };
-      
-      img.onerror = (error) => reject(error);
     };
-    
     reader.onerror = (error) => reject(error);
   });
 };
