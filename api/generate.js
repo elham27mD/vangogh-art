@@ -1,7 +1,6 @@
 import Replicate from "replicate";
 
 export default async function handler(req, res) {
-  // 1. السماح فقط بطلبات POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -13,37 +12,36 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    console.log("🚀 Starting SDXL Generation...");
+    // موديل SDXL الرسمي (النسخة المستقرة 1.0)
+    // هذا هو المعرف الصحيح الذي لن يعطيك خطأ 422 بإذن الله
+    const modelVersion = "7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929fb43c";
 
-    // استخدام موديل SDXL (الأقوى والأكثر استقراراً)
     const output = await replicate.run(
-      "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b7159d722d8b1dd",
+      `stability-ai/sdxl:${modelVersion}`,
       {
         input: {
-          image: image, // الصورة (Base64)
+          image: image,
           
-          // البرومبت: وصف دقيق للستايل
-          prompt: "oil painting style of Vincent Van Gogh, thick impasto brushstrokes, swirling patterns, starry night colors, artistic masterpiece, highly detailed",
+          // البرومبت: وصف ستايل فان جوخ بدقة
+          prompt: "oil painting style of Vincent Van Gogh, The Starry Night style, thick impasto brushstrokes, expressive swirling patterns, vibrant blue and yellow colors, artistic masterpiece, highly detailed texture",
           
-          // ما الذي لا نريده (Negative Prompt)
-          negative_prompt: "text, watermark, writing, blurry, ugly, distorted, low quality, photography, realistic, bad anatomy",
+          // الأشياء التي نريد تجنبها (مهم جداً لعدم تشويه الصورة)
+          negative_prompt: "text, watermark, signature, ugly, distorted, low quality, blurry, photography, realistic, deformed, bad anatomy, writing",
           
-          // قوة التغيير (0.0 إلى 1.0)
-          // 0.65 = يحافظ على شكل الشخص والملابس بنسبة جيدة ويغير الستايل
-          prompt_strength: 0.65, 
+          // قوة تأثير الستايل (0.0 إلى 1.0)
+          // 0.75: يعطي توازن ممتاز (يغير الستايل بالكامل لكن يحافظ على شكل الشخص/الغرض)
+          prompt_strength: 0.75, 
           
-          // عدد الخطوات (الجودة)
+          // عدد الخطوات (30 كافية جداً وتعطي جودة ممتازة وسريعة)
           num_inference_steps: 30
         }
       }
     );
 
-    console.log("✅ Success:", output);
-    // SDXL يعيد مصفوفة، نأخذ الرابط الأول
     res.status(200).json({ output: output[0] });
 
   } catch (error) {
-    console.error("❌ Replicate Error:", error);
-    res.status(500).json({ error: error.message || "حدث خطأ في السيرفر" });
+    console.error("Replicate Error:", error);
+    res.status(500).json({ error: error.message });
   }
 }
