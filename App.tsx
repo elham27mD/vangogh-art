@@ -18,7 +18,7 @@ export default function App() {
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // لعرض رد السيرفر الخام (Debugging)
+  // لعرض رد السيرفر الخام (Debugging) - سيظهر فقط عند الخطأ
   const [serverLog, setServerLog] = useState<string>(""); 
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,9 +32,40 @@ export default function App() {
     });
   };
 
+  // --- دالة التحقق من حد الاستخدام اليومي ---
+  const checkDailyLimit = (): boolean => {
+    const STORAGE_KEY = 'nano_banana_daily_usage';
+    const MAX_DAILY_REQUESTS = 2;
+    const today = new Date().toDateString(); // "Sun Jan 18 2026"
+
+    const storedData = localStorage.getItem(STORAGE_KEY);
+    let data = storedData ? JSON.parse(storedData) : { date: today, count: 0 };
+
+    // تصفير العداد إذا كان تاريخ التخزين مختلفاً عن اليوم
+    if (data.date !== today) {
+      data = { date: today, count: 0 };
+    }
+
+    if (data.count >= MAX_DAILY_REQUESTS) {
+      return false; // تم تجاوز الحد
+    }
+
+    // زيادة العداد وحفظه
+    data.count += 1;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return true; // مسموح
+  };
+
   const handleNanoBananaGen = async (file: File) => {
     if (!API_KEY) {
       setErrorMsg("مفتاح API مفقود!");
+      return;
+    }
+
+    // 1. التحقق من الحد اليومي قبل البدء
+    if (!checkDailyLimit()) {
+      setErrorMsg("⛔ عذراً، لقد استهلكت رصيدك المجاني اليوم (محاولتين). جرب غداً!");
+      setServerLog(""); // مسح السجل القديم
       return;
     }
 
@@ -60,7 +91,7 @@ export default function App() {
               parts: [
                 // 1. الصورة الأصلية (Base64)
                 { inline_data: { mime_type: file.type, data: base64Data } },
-                // 2. البرومبت الثابت (كما طلبت)
+                // 2. البرومبت الثابت
                 { text: "make this image into Van Gogh style painting" }
               ]
             }],
@@ -75,32 +106,36 @@ export default function App() {
 
       const data = await response.json();
       
-      // تخزين الرد الخام
-      setServerLog(JSON.stringify(data, null, 2));
+      // تعليق هذا السطر لمنع ظهور النص الطويل إلا في حالة الخطأ لاحقاً
+      // setServerLog(JSON.stringify(data, null, 2));
 
       if (!response.ok) {
-        // إذا كان الموديل غير متاح بعد للعامة، سيظهر الخطأ هنا
+        setServerLog(JSON.stringify(data, null, 2)); // عرض الخطأ فقط
         throw new Error(data.error?.message || `Error ${response.status}: فشل الاتصال بالموديل`);
       }
 
-        // --- الكود الجديد (الحل) ---
-        // التحقق من وجود البيانات بأي من الصيغتين (inline_data أو inlineData)
-        const imgData = part.inline_data || part.inlineData;
-        
-        if (imgData && imgData.data) {
-          // أيضاً التأكد من صيغة الـ mimeType لأنها قد تأتي mimeType أو mime_type
-          const mimeType = imgData.mime_type || imgData.mimeType || 'image/png';
-          
-          setResultImage(`data:${mimeType};base64,${imgData.data}`);
-          foundImage = true;
-          break;
-        }
+      // --- استخراج الصورة المولدة (الكود المعدل والمصلح) ---
+      let foundImage = false;
+      if (data.candidates && data.candidates.length > 0) {
+        const parts = data.candidates[0].content.parts;
+        for (const part of parts) {
+          // ✅ التعديل هنا: فحص الصيغتين (CamelCase و SnakeCase)
+          const imgData = part.inlineData || part.inline_data;
 
+          if (imgData && imgData.data) {
+             const mimeType = imgData.mimeType || imgData.mime_type || "image/png";
+             setResultImage(`data:${mimeType};base64,${imgData.data}`);
+             foundImage = true;
+             setServerLog(""); // تنظيف السجل عند النجاح
+             break;
+          }
         }
       }
 
       if (!foundImage) {
-        setErrorMsg("الموديل استجاب لكنه لم يرسل صورة. (قد يكون الرد نصياً فقط، راجع السجل بالأسفل).");
+        // في حال لم نجد صورة، نعرض السجل لنعرف السبب
+        setServerLog(JSON.stringify(data, null, 2));
+        setErrorMsg("الموديل استجاب لكنه لم يرسل صورة. راجع السجل بالأسفل.");
       }
 
     } catch (err: any) {
@@ -166,7 +201,7 @@ export default function App() {
                 ) : (
                   <div className="h-[300px] flex flex-col items-center justify-center bg-slate-100 rounded-2xl border-2 border-dashed border-gray-300 p-4 text-center">
                     <p className="text-gray-500 font-bold mb-2">بانتظار الصورة...</p>
-                    {errorMsg && <p className="text-sm text-red-500">راجع السجل بالأسفل 👇</p>}
+                    {errorMsg && <p className="text-sm text-red-500 font-bold">{errorMsg}</p>}
                   </div>
                 )}
               </div>
@@ -176,7 +211,8 @@ export default function App() {
               {!isProcessing && !resultImage && (
                 <button 
                   onClick={() => imageFile && handleNanoBananaGen(imageFile)}
-                  className="bg-[#1a237e] text-white px-10 py-4 rounded-full text-xl font-bold shadow-lg hover:bg-[#151b60] transition-colors"
+                  className="bg-[#1a237e] text-white px-10 py-4 rounded-full text-xl font-bold shadow-lg hover:bg-[#151b60] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!!errorMsg && errorMsg.includes("تجاوزت الحد")}
                 >
                   🚀 إرسال (Gemini 2.5 Flash Image)
                 </button>
@@ -196,16 +232,16 @@ export default function App() {
           </div>
         )}
 
-        {/* --- منطقة السجل (لفحص الرد) --- */}
-        {(serverLog || errorMsg) && (
+        {/* --- منطقة السجل (تظهر فقط عند وجود خطأ أو سجل خطأ) --- */}
+        {(serverLog && errorMsg && !errorMsg.includes("تجاوزت الحد")) && (
           <div className="mt-12 text-left bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-2xl" dir="ltr">
             <div className="bg-gray-800 px-4 py-2 border-b border-gray-700 flex justify-between items-center">
-              <span className="text-gray-300 font-mono text-sm">Server Response Log</span>
+              <span className="text-gray-300 font-mono text-sm">Error Log</span>
               <span className="text-xs text-gray-500">Model: gemini-2.5-flash-image</span>
             </div>
             <div className="p-4 font-mono text-xs overflow-x-auto max-h-[400px] overflow-y-auto">
-              {errorMsg && <div className="text-red-400 mb-4 font-bold">STATUS: {errorMsg}</div>}
-              <pre className="text-green-400 whitespace-pre-wrap">{serverLog || "Waiting..."}</pre>
+              <div className="text-red-400 mb-4 font-bold">STATUS: {errorMsg}</div>
+              <pre className="text-green-400 whitespace-pre-wrap">{serverLog}</pre>
             </div>
           </div>
         )}
