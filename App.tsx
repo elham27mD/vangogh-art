@@ -1,3 +1,5 @@
+// App.tsx
+
 import React, { useState } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
@@ -7,28 +9,26 @@ import ResultView from './components/ResultView';
 import CTA from './components/CTA';
 import Footer from './components/Footer';
 import { transformToVanGogh } from './services/geminiService';
-import { compressImage } from './utils/imageCompressor'; // ✅ استيراد دالة الضغط الجديدة
+import { compressImage } from './utils/imageCompressor'; // تأكد من المسار
 import { AppStage, GenerationResult } from './types';
 
-// --- دالة فحص الحد اليومي (2 محاولات/يوم) ---
+// --- دالة فحص الحد اليومي ---
 const checkDailyLimit = (): boolean => {
-  const STORAGE_KEY = 'vangogh_daily_limit_v1';
-  const MAX_REQUESTS = 20;
+  const STORAGE_KEY = 'vangogh_daily_limit_v2'; // غيرنا المفتاح لتصفير العداد للتجربة
+  const MAX_REQUESTS = 5; // رفعنا الحد قليلاً للتجارب
   const today = new Date().toDateString();
 
   const stored = localStorage.getItem(STORAGE_KEY);
   let data = stored ? JSON.parse(stored) : { date: today, count: 0 };
 
-  // تصفير العداد إذا دخلنا في يوم جديد
   if (data.date !== today) {
     data = { date: today, count: 0 };
   }
 
   if (data.count >= MAX_REQUESTS) {
-    return false; // تجاوز الحد
+    return false; 
   }
 
-  // زيادة العداد وحفظه
   data.count++;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   return true;
@@ -40,9 +40,9 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const handleImageUpload = async (file: File) => {
-    // 1. التحقق من الحد اليومي قبل البدء
+    // 1. فحص الحد اليومي
     if (!checkDailyLimit()) {
-      setError("⛔ عذراً، لقد استهلكت رصيدك المجاني اليوم (محاولتين). تفضل بالعودة غداً!");
+      setError("⛔ عذراً، لقد استهلكت رصيدك اليومي. حاول غداً!");
       return;
     }
 
@@ -50,29 +50,32 @@ const App: React.FC = () => {
     setStage(AppStage.PROCESSING);
 
     try {
-      // 2. ✅ ضغط الصورة قبل الإرسال (لتحسين السرعة وتقليل الحجم)
-      console.log("جاري ضغط الصورة...");
+      // 2. تجهيز العرض الفوري (نعرض الصورة الأصلية للمستخدم لجودة أفضل)
+      const displayUrl = URL.createObjectURL(file);
+
+      // 3. ضغط الصورة في الخلفية (للإرسال للسيرفر فقط)
+      console.log("جاري ضغط الصورة للإرسال...");
       const compressedBase64 = await compressImage(file);
-      console.log("تم الضغط! جاري الإرسال للسيرفر...");
       
       try {
-        // 3. إرسال الصورة المضغوطة للسيرفر
+        // 4. إرسال النسخة الصغيرة للسيرفر
         const processedImage = await transformToVanGogh(compressedBase64);
         
         setResult({
-          originalUrl: compressedBase64, // نعرض الصورة المضغوطة (أسرع)
-          processedUrl: processedImage
+          originalUrl: displayUrl,    // ✅ المستخدم يرى صورته الأصلية واضحة
+          processedUrl: processedImage // ✅ ويستلم النتيجة الفنية
         });
         setStage(AppStage.RESULT);
+        
       } catch (err: any) {
         console.error(err);
-        setError("عذراً، حدث خطأ أثناء المعالجة: " + err.message);
+        setError("عذراً، فشلت المعالجة: " + err.message);
         setStage(AppStage.UPLOAD);
       }
 
     } catch (err) {
       console.error(err);
-      setError("حدث خطأ أثناء تحضير الصورة (الضغط).");
+      setError("حدث خطأ أثناء قراءة الصورة.");
       setStage(AppStage.UPLOAD);
     }
   };
@@ -89,12 +92,10 @@ const App: React.FC = () => {
       
       <main className="flex-grow container mx-auto px-4 py-8 max-w-4xl space-y-12">
         
-        {/* حالة الرفع (الرئيسية) */}
         {stage === AppStage.UPLOAD && (
           <div className="space-y-16 animate-fade-in">
             <Hero />
             
-            {/* عرض رسالة الخطأ إن وجدت */}
             {error && (
               <div className="p-4 bg-red-100 border-2 border-red-200 rounded-xl text-red-700 text-center font-bold">
                 {error}
@@ -109,12 +110,10 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* حالة المعالجة */}
         {stage === AppStage.PROCESSING && (
            <ProcessingView /> 
         )}
 
-        {/* حالة النتيجة */}
         {stage === AppStage.RESULT && result && (
           <div className="animate-fade-in">
              <ResultView result={result} onReset={resetApp} />
