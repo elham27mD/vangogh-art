@@ -4,9 +4,10 @@ import Hero from './components/Hero';
 import ImageUploader from './components/ImageUploader';
 import ProcessingView from './components/ProcessingView';
 import ResultView from './components/ResultView';
-import CTA from './components/CTA';     // تمت إضافته
-import Footer from './components/Footer'; // تمت إضافته
+import CTA from './components/CTA';
+import Footer from './components/Footer';
 import { transformToVanGogh } from './services/geminiService';
+import { compressImage } from './utils/imageCompressor'; // ✅ استيراد دالة الضغط الجديدة
 import { AppStage, GenerationResult } from './types';
 
 // --- دالة فحص الحد اليومي (2 محاولات/يوم) ---
@@ -49,29 +50,29 @@ const App: React.FC = () => {
     setStage(AppStage.PROCESSING);
 
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const originalBase64 = reader.result as string;
+      // 2. ✅ ضغط الصورة قبل الإرسال (لتحسين السرعة وتقليل الحجم)
+      console.log("جاري ضغط الصورة...");
+      const compressedBase64 = await compressImage(file);
+      console.log("تم الضغط! جاري الإرسال للسيرفر...");
+      
+      try {
+        // 3. إرسال الصورة المضغوطة للسيرفر
+        const processedImage = await transformToVanGogh(compressedBase64);
         
-        try {
-          // استدعاء الخدمة (التي تم إصلاحها)
-          const processedImage = await transformToVanGogh(originalBase64);
-          
-          setResult({
-            originalUrl: originalBase64,
-            processedUrl: processedImage
-          });
-          setStage(AppStage.RESULT);
-        } catch (err: any) {
-          console.error(err);
-          setError("عذراً، حدث خطأ أثناء المعالجة: " + err.message);
-          setStage(AppStage.UPLOAD);
-        }
-      };
-      reader.readAsDataURL(file);
+        setResult({
+          originalUrl: compressedBase64, // نعرض الصورة المضغوطة (أسرع)
+          processedUrl: processedImage
+        });
+        setStage(AppStage.RESULT);
+      } catch (err: any) {
+        console.error(err);
+        setError("عذراً، حدث خطأ أثناء المعالجة: " + err.message);
+        setStage(AppStage.UPLOAD);
+      }
 
     } catch (err) {
-      setError("حدث خطأ في قراءة الملف.");
+      console.error(err);
+      setError("حدث خطأ أثناء تحضير الصورة (الضغط).");
       setStage(AppStage.UPLOAD);
     }
   };
