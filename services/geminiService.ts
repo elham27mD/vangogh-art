@@ -1,8 +1,9 @@
-// services/geminiService.ts
+// src/services/geminiService.ts
 
-// هذه الدالة الآن تتصل بالسيرفر الخاص بك (api/generate.js)
-// ولا تتصل بشركة الذكاء الاصطناعي مباشرة
 export const transformToVanGogh = async (base64Image: string): Promise<string> => {
+  
+  // ⚠️ التعديل المهم: نرسل base64Image كما هو (مع المقدمة data:image...)
+  // لا تقم بعمل split أو تنظيف هنا، لأن Replicate يحتاج الصيغة الكاملة
   
   try {
     const response = await fetch("/api/generate", {
@@ -11,7 +12,7 @@ export const transformToVanGogh = async (base64Image: string): Promise<string> =
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        image: base64Image // نرسل الصورة للسيرفر
+        image: base64Image // نرسل الكود كاملاً
       }),
     });
 
@@ -21,7 +22,6 @@ export const transformToVanGogh = async (base64Image: string): Promise<string> =
       throw new Error(data.error || "فشل الاتصال بالسيرفر");
     }
 
-    // إرجاع رابط الصورة الناتج من Replicate
     return data.output;
     
   } catch (error: any) {
