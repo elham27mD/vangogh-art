@@ -83,17 +83,19 @@ export default function App() {
         throw new Error(data.error?.message || `Error ${response.status}: فشل الاتصال بالموديل`);
       }
 
-      // --- استخراج الصورة المولدة ---
-      let foundImage = false;
-      if (data.candidates && data.candidates.length > 0) {
-        const parts = data.candidates[0].content.parts;
-        for (const part of parts) {
-          // في Gemini Image Model، الصورة تأتي كـ inline_data
-          if (part.inline_data && part.inline_data.data) {
-             setResultImage(`data:${part.inline_data.mime_type};base64,${part.inline_data.data}`);
-             foundImage = true;
-             break;
-          }
+        // --- الكود الجديد (الحل) ---
+        // التحقق من وجود البيانات بأي من الصيغتين (inline_data أو inlineData)
+        const imgData = part.inline_data || part.inlineData;
+        
+        if (imgData && imgData.data) {
+          // أيضاً التأكد من صيغة الـ mimeType لأنها قد تأتي mimeType أو mime_type
+          const mimeType = imgData.mime_type || imgData.mimeType || 'image/png';
+          
+          setResultImage(`data:${mimeType};base64,${imgData.data}`);
+          foundImage = true;
+          break;
+        }
+
         }
       }
 
