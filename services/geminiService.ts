@@ -11,8 +11,14 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // 1. جلب أحدث إصدار
-    const modelResponse = await fetch("https://api.replicate.com/v1/models/stability-ai/sdxl", {
+    // اسم موديل ControlNet الشهير والمستقر
+    const modelOwner = "jagilley";
+    const modelName = "controlnet-canny";
+
+    console.log(`Fetching latest version for ${modelOwner}/${modelName}...`);
+
+    // 1. جلب أحدث إصدار تلقائياً
+    const modelResponse = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}`, {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -20,11 +26,13 @@ export default async function handler(req, res) {
       }
     });
 
-    if (!modelResponse.ok) throw new Error(`Failed to fetch model info`);
+    if (!modelResponse.ok) throw new Error(`Failed to find model: ${modelResponse.status}`);
     const modelData = await modelResponse.json();
     const latestVersionId = modelData.latest_version.id;
 
-    // 2. إنشاء الصورة
+    console.log("Using ControlNet Version:", latestVersionId);
+
+    // 2. إرسال الطلب (لاحظ اختلاف المدخلات قليلاً لهذا الموديل)
     const predictionResponse = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
@@ -37,22 +45,25 @@ export default async function handler(req, res) {
         input: {
           image: image,
           
-          // البرومبت: تأكيد على أن الستايل يجب أن يغطي كل شيء
-          prompt: "An expressive oil painting rendered ENTIRELY in the style of Vincent Van Gogh's 'The Starry Night'. The subject is painted with thick, swirling impasto brushstrokes in dominant deep blues and vibrant yellows. The entire canvas, including the person, is transformed into this artistic style. No photorealism remaining.",
+          // البرومبت: نطلب الستايل بقوة
+          prompt: "oil painting of a person in the style of Vincent Van Gogh, The Starry Night, thick impasto brushstrokes, swirling blue and yellow patterns, expressive art",
           
           // الممنوعات
-          negative_prompt: "photorealistic, realism, photography, smooth, flat, blurry, low quality, ugly, deformed, perfume, bottle",
+          negative_prompt: "photorealistic, realism, photography, ugly, deformed, blurry, low quality",
           
-          // 🔥🔥🔥 التعديلات الجريئة 🔥🔥🔥
+          // إعدادات ControlNet المهمة:
+          // num_samples: عدد النسخ (1 كافية)
+          // image_resolution: دقة الصورة (512 ممتاز للسرعة والجودة لهذا الموديل)
+          // ddim_steps: خطوات المعالجة (20 كافية)
+          // scale: مدى التزام الموديل بالنص (9.0 جيد)
+          num_samples: "1",
+          image_resolution: "512",
+          ddim_steps: 20,
+          scale: 9.0,
           
-          // 1. قوة التغيير عالية (المجازفة)
-          prompt_strength: 0.75,
-          
-          // 2. التوجيه النصي عالي جداً (إجبار على الستايل)
-          guidance_scale: 15.0, 
-          
-          // عدد خطوات أعلى لضمان جودة التفاصيل الفنية
-          num_inference_steps: 40
+          // low_threshold & high_threshold: حساسية التقاط الخطوط (100-200 قياسي)
+          low_threshold: 100,
+          high_threshold: 200
         }
       }),
     });
@@ -75,7 +86,13 @@ export default async function handler(req, res) {
     }
 
     if (prediction.status === "succeeded") {
-       res.status(200).json({ output: prediction.output[0] });
+       // ControlNet يعيد قائمة صور، نأخذ الأخيرة (النتيجة النهائية)
+       // أحياناً يعيد الصورة الأولى هي "خريطة الخطوط" والثانية هي "النتيجة"
+       // الكود أدناه يأخذ آخر صورة في المصفوفة لضمان أنها النتيجة الملونة
+       const outputImages = prediction.output;
+       const finalImage = outputImages[outputImages.length - 1];
+       
+       res.status(200).json({ output: finalImage });
     } else {
        res.status(500).json({ error: prediction.error });
     }
