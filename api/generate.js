@@ -11,11 +11,7 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // ---------------------------------------------------------
-    // الخطوة 1: جلب رقم أحدث إصدار تلقائياً (عشان ما نغلط في الرقم)
-    //
-    // ---------------------------------------------------------
-    console.log("Fetching latest SDXL version...");
+    // 1. جلب أحدث إصدار
     const modelResponse = await fetch("https://api.replicate.com/v1/models/stability-ai/sdxl", {
       method: "GET",
       headers: {
@@ -24,72 +20,59 @@ export default async function handler(req, res) {
       }
     });
 
-    if (!modelResponse.ok) {
-      throw new Error(`Failed to fetch model info: ${modelResponse.status}`);
-    }
-
+    if (!modelResponse.ok) throw new Error(`Failed to fetch model info`);
     const modelData = await modelResponse.json();
-    // نأخذ الـ ID من أحدث نسخة موجودة في السيرفر حالاً
-    // (response object contains latest_version)
     const latestVersionId = modelData.latest_version.id;
-    console.log("Latest Version ID:", latestVersionId);
 
-    // ---------------------------------------------------------
-    // الخطوة 2: إنشاء الصورة باستخدام الإصدار الذي جلبناه
-    //
-    // ---------------------------------------------------------
+    // 2. إنشاء الصورة
     const predictionResponse = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
-        "Prefer": "wait=60" //
+        "Prefer": "wait=40"
       },
       body: JSON.stringify({
-        version: latestVersionId, //
+        version: latestVersionId,
         input: {
           image: image,
-          prompt: "oil painting style of Vincent Van Gogh, The Starry Night style, thick impasto brushstrokes, expressive swirling patterns, vibrant blue and yellow colors, artistic masterpiece, highly detailed texture",
-          negative_prompt: "text, watermark, signature, ugly, distorted, low quality, blurry, photography, realistic, deformed, bad anatomy, writing",
+          
+          // ✅ التركيز على الستايل مع الحفاظ على هوية الشخص
+          prompt: "An oil painting in the style of Vincent Van Gogh, The Starry Night aesthetic. Thick impasto brushstrokes, swirling sky patterns, vibrant blue and yellow palette. Highly detailed texture, artistic masterpiece. Maintain the exact identity, facial features, and hair of the subject.",
+          
+          // ✅✅ التصحيح هنا:
+          // حذفنا (beard, mustache) لكي لا يحذف لحية المستخدم الأصلية
+          // أبقينا (Van Gogh face) لمنع الموديل من رسم فان غوخ بدلاً منك
+          negative_prompt: "Van Gogh face, photo, realistic, ugly, deformed, blurry, text, watermark, bad anatomy, low quality",
+          
+          // قوة التأثير: 0.65 ممتازة للموازنة بين الستايل والملامح
           prompt_strength: 0.65,
-          num_inference_steps: 25
+          num_inference_steps: 30
         }
       }),
     });
 
     if (!predictionResponse.ok) {
       const err = await predictionResponse.json();
-      throw new Error(err.detail || "Prediction failed to start");
+      throw new Error(err.detail || "Prediction failed");
     }
 
     let prediction = await predictionResponse.json();
 
-    // ---------------------------------------------------------
-    // الخطوة 3: انتظار النتيجة (Polling)
-    //
-    // ---------------------------------------------------------
+    // 3. انتظار النتيجة
     while (prediction.status === "starting" || prediction.status === "processing") {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      
-      const pollResponse = await fetch(prediction.urls.get, { // (urls.get)
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+      const pollResponse = await fetch(prediction.urls.get, {
+        headers: {"Authorization": `Bearer ${token}`}
       });
-
-      if (!pollResponse.ok) {
-         throw new Error("Polling failed");
-      }
-
+      if (!pollResponse.ok) throw new Error("Polling failed");
       prediction = await pollResponse.json();
     }
 
     if (prediction.status === "succeeded") {
        res.status(200).json({ output: prediction.output[0] });
     } else {
-       console.error("Failed:", prediction.error);
-       res.status(500).json({ error: prediction.error || "Generation failed" });
+       res.status(500).json({ error: prediction.error });
     }
 
   } catch (error) {
