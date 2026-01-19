@@ -1,5 +1,3 @@
-// api/generate.js - ControlNet (Canny) Solution
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -13,15 +11,12 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // 1. استخدام نموذج ControlNet (Canny) المستقر
-    // هذا النموذج يرسم خريطة خطوط للصورة الأصلية ويلونها بالستايل المطلوب
-    // مما يضمن الحفاظ على ملامح الوجه والشكل بدقة 100%
+    // نستخدم موديل العمق (Depth) لأنه الأفضل في الحفاظ على هيكل الوجه والمكان
     const modelOwner = "jagilley";
-    const modelName = "controlnet-canny";
+    const modelName = "controlnet-depth-sdxl";
 
     console.log(`Fetching latest version for ${modelOwner}/${modelName}...`);
 
-    // جلب أحدث إصدار تلقائياً لتفادي الأخطاء
     const modelResponse = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}`, {
       method: "GET",
       headers: {
@@ -34,37 +29,38 @@ export default async function handler(req, res) {
     const modelData = await modelResponse.json();
     const latestVersionId = modelData.latest_version.id;
 
-    console.log("Using ControlNet Version:", latestVersionId);
-
-    // 2. إرسال طلب المعالجة
+    // 2. إرسال الطلب
     const predictionResponse = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
-        "Prefer": "wait=50"
+        "Prefer": "wait=60"
       },
       body: JSON.stringify({
         version: latestVersionId,
         input: {
           image: image,
           
-          // البرومبت: نطلب ستايل "ليلة النجوم" بقوة
-          // بما أن ControlNet يحمي الشكل، يمكننا أن نكون جريئين في طلب الألوان والفرشاة
-          prompt: "A vibrant oil painting in the style of Vincent Van Gogh's The Starry Night. Thick, swirling impasto brushstrokes in deep blues and rich yellows. Expressive, textured, artistic masterpiece.",
+          // 🔥🔥🔥 التعديل الجوهري في البرومبت لحماية العرقية 🔥🔥🔥
+          // 1. حددنا بوضوح: "Middle Eastern man" (رجل شرق أوسطي).
+          // 2. أضفنا: "dark hair and beard" (شعر ولحية داكنة).
+          // 3. أضفنا شرطاً صارماً: "maintain exact facial features and ethnicity" (الحفاظ على الملامح والعرقية بدقة).
+          // 4. وفي نفس الوقت طلبنا أن تكون الخلفية "The Starry Night sky".
+          prompt: "A textured oil painting in the style of Van Gogh. Portrait of a Middle Eastern man with dark hair and beard in an office. The painting must maintain exact facial features, skin tone palette, and ethnicity of the subject. The background walls are transformed into the swirling blue and yellow sky patterns of 'The Starry Night'. Impasto brushwork everywhere.",
           
-          // الممنوعات: نمنع الواقعية والصور الفوتوغرافية
-          negative_prompt: "photorealistic, realism, photography, smooth, flat, blurry, low quality, ugly, deformed",
+          // ✅ الممنوعات: نمنع تغيير العرقية أو الملامح
+          negative_prompt: "change ethnicity, caucasian, whitewashed, different face, distorted features, plain background, photorealistic, smooth",
           
-          // إعدادات ControlNet:
-          num_samples: "1", // صورة واحدة
-          image_resolution: "512", // دقة متوازنة
-          ddim_steps: 25, // خطوات كافية لجودة عالية
-          scale: 9.5, // التزام قوي جداً بالبرومبت (الستايل)
+          // إعدادات الموديل:
+          num_inference_steps: 35,
           
-          // حساسية التقاط الخطوط (إعدادات قياسية)
-          low_threshold: 100,
-          high_threshold: 200
+          // رفعنا التوجيه لكي يلتزم بالتعليمات الصارمة في البرومبت
+          guidance_scale: 12.0, 
+          
+          // قوة ControlNet: 
+          // 0.8 ممتازة. قوية بما يكفي لفرض هيكل الوجه العربي، وتسمح للستايل بالظهور
+          strength: 0.8,
         }
       }),
     });
@@ -87,10 +83,8 @@ export default async function handler(req, res) {
     }
 
     if (prediction.status === "succeeded") {
-       // ControlNet يعيد مصفوفة صور، الصورة الأخيرة هي النتيجة النهائية الملونة
        const outputImages = prediction.output;
        const finalImage = outputImages[outputImages.length - 1];
-       
        res.status(200).json({ output: finalImage });
     } else {
        res.status(500).json({ error: prediction.error });
