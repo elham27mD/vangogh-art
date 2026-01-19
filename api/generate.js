@@ -1,24 +1,26 @@
 /**
- * /api/generate.js  (Vercel Serverless Function)
+ * /api/generate.js (Vercel Serverless Function) - ESM
  *
- * Default mode: Neural Style Transfer (NST) to preserve content structure (thobe/face/edges)
- * Optional mode: SDXL img2img fallback with conservative prompt_strength to reduce hallucinations
+ * Key fixes:
+ * - ESM export (because package.json has "type":"module")
+ * - No Wikimedia default (Replicate can 403 fetching it). Requires styleUrl/styleBase64 or DEFAULT_STYLE_URL env.
+ * - Async-safe: returns 202 with predictionId if processing takes too long (avoids Vercel timeouts / aborts).
+ * - GET endpoint to poll status: /api/generate?id=...
  *
- * Required env:
+ * ENV REQUIRED:
  *   REPLICATE_API_TOKEN = r8_...
+ *
+ * ENV OPTIONAL:
+ *   DEFAULT_STYLE_URL = https://www.elhamk23.art/style/Starry_Night.jpg
  */
 
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
 
-// Public-domain Starry Night reference image (Wikimedia)
-const DEFAULT_STARRY_NIGHT_STYLE_URL =
-  "https://upload.wikimedia.org/wikipedia/commons/d/de/Vincent_van_Gogh_Starry_Night.jpg";
-
-// Community NST models (need version hash). We resolve latest version dynamically.
+// Community NST models (require version hash; fetch latest dynamically)
 const NST_PRIMARY = { owner: "huage001", name: "adaattn" };
 const NST_FALLBACK = { owner: "nkolkin13", name: "neuralneighborstyletransfer" };
 
-// Official SDXL model endpoint (no version hash needed when using /v1/models/{owner}/{name}/predictions)
+// Official SDXL model (optional fallback)
 const SDXL_OFFICIAL = "stability-ai/sdxl";
 
 // In-memory cache (warm lambda reuse only)
@@ -30,7 +32,7 @@ let cachedLatestVersion = {
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
 }
 
@@ -38,16 +40,13 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function normalizeToDataUrl(imageBase64, mimeType = "image/jpeg") {
-  if (!imageBase64 || typeof imageBase64 !== "string") return null;
-  if (imageBase64.startsWith("data:")) return imageBase64;
-  return `data:${mimeType};base64,${imageBase64}`;
+function normalizeToDataUrl(maybeBase64, mimeType = "image/jpeg") {
+  if (!maybeBase64 || typeof maybeBase64 !== "string") return null;
+  if (maybeBase64.startsWith("data:")) return maybeBase64;
+  return `data:${mimeType};base64,${maybeBase64}`;
 }
 
-async function replicateFetch(
-  path,
-  { token, method = "GET", body, timeoutMs = 30000, preferWaitSeconds } = {}
-) {
+async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 45000, preferWaitSeconds } = {}) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -94,7 +93,7 @@ async function getLatestVersionId(owner, name, token) {
   const key = `${owner}/${name}`;
   const now = Date.now();
 
-  // Cache for 6 hours (best-effort)
+  // Cache for 6 hours
   if (
     cachedLatestVersion.key === key &&
     cachedLatestVersion.versionId &&
@@ -103,11 +102,7 @@ async function getLatestVersionId(owner, name, token) {
     return cachedLatestVersion.versionId;
   }
 
-  const model = await replicateFetch(`/models/${owner}/${name}`, {
-    token,
-    timeoutMs: 30000,
-  });
-
+  const model = await replicateFetch(`/models/${owner}/${name}`, { token, timeoutMs: 45000 });
   const versionId = model?.latest_version?.id;
   if (!versionId) throw new Error(`Could not resolve latest_version.id for ${key}`);
 
@@ -116,76 +111,43 @@ async function getLatestVersionId(owner, name, token) {
 }
 
 async function createPredictionByVersion({ version, input, token }) {
-  // Community models: POST /v1/predictions with {version: "...:hash", input:{...}}
+  // Community models: POST /v1/predictions with {version:"owner/name:hash", input:{}}
   return replicateFetch(`/predictions`, {
     token,
     method: "POST",
-    preferWaitSeconds: 60,
+    preferWaitSeconds: 45,
     body: { version, input },
-    timeoutMs: 30000,
+    timeoutMs: 45000,
   });
 }
 
 async function createPredictionByOfficialModel({ model, input, token }) {
-  // Official model endpoint: POST /v1/models/{owner}/{name}/predictions
+  // Official endpoint: POST /v1/models/{owner}/{name}/predictions with {input:{}}
   return replicateFetch(`/models/${model}/predictions`, {
     token,
     method: "POST",
-    preferWaitSeconds: 60,
+    preferWaitSeconds: 45,
     body: { input },
-    timeoutMs: 30000,
+    timeoutMs: 45000,
   });
 }
 
-async function pollPrediction(prediction, token, { maxWaitMs = 3 * 60 * 1000 } = {}) {
-  const started = Date.now();
-  let delay = 750;
-  let current = prediction;
-
-  while (true) {
-    if (!current) throw new Error("Prediction missing");
-
-    if (current.status === "succeeded") return current;
-
-    if (current.status === "failed" || current.status === "canceled") {
-      const err = new Error(current.error || "Prediction failed");
-      err.httpStatus = 502;
-      err.payload = current;
-      throw err;
-    }
-
-    if (Date.now() - started > maxWaitMs) {
-      const err = new Error("Prediction timed out");
-      err.httpStatus = 504;
-      err.payload = current;
-      throw err;
-    }
-
-    await sleep(delay);
-    delay = Math.min(Math.floor(delay * 1.35), 4000);
-
-    current = await replicateFetch(`/predictions/${current.id}`, {
-      token,
-      timeoutMs: 30000,
-    });
-  }
+async function fetchPrediction(id, token) {
+  return replicateFetch(`/predictions/${id}`, { token, timeoutMs: 45000 });
 }
 
 /**
  * Replicate output may be:
  * - string URL
- * - array of string URLs
- * - object like { image: "url" } or { output: "url" }
- * - array of objects like [{ url: "..." }, { image: "..." }]
- * This tries hard to extract the first usable URL.
+ * - array of URLs
+ * - object with {image|url|output|...}
+ * - array of objects
  */
 function firstOutputUrl(output) {
   if (!output) return null;
 
-  // direct string
   if (typeof output === "string") return output;
 
-  // array
   if (Array.isArray(output)) {
     for (const item of output) {
       const u = firstOutputUrl(item);
@@ -194,7 +156,6 @@ function firstOutputUrl(output) {
     return null;
   }
 
-  // object
   if (typeof output === "object") {
     const candidates = [
       output.url,
@@ -207,13 +168,11 @@ function firstOutputUrl(output) {
       output.images,
       output.results,
     ];
-
     for (const c of candidates) {
       const u = firstOutputUrl(c);
       if (u) return u;
     }
 
-    // last resort: scan nested values
     for (const v of Object.values(output)) {
       if (typeof v === "string" && v.startsWith("http")) return v;
       const u = firstOutputUrl(v);
@@ -224,40 +183,108 @@ function firstOutputUrl(output) {
   return null;
 }
 
+async function pollPredictionUntil({ id, token, timeBudgetMs = 55000 }) {
+  const started = Date.now();
+  let delay = 900;
+
+  while (true) {
+    const p = await fetchPrediction(id, token);
+
+    if (p.status === "succeeded") return { done: true, prediction: p };
+    if (p.status === "failed" || p.status === "canceled") {
+      const err = new Error(p.error || "Prediction failed");
+      err.httpStatus = 502;
+      err.payload = p;
+      throw err;
+    }
+
+    if (Date.now() - started > timeBudgetMs) {
+      return { done: false, prediction: p };
+    }
+
+    await sleep(delay);
+    delay = Math.min(Math.floor(delay * 1.35), 3500);
+  }
+}
+
+function getQueryParam(req, key) {
+  // Vercel Node req may have req.query; but safe fallback:
+  try {
+    if (req.query && req.query[key]) return req.query[key];
+  } catch {}
+  try {
+    const u = new URL(req.url, "http://localhost");
+    return u.searchParams.get(key);
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
-  // CORS (adjust origin if needed)
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.end();
 
-  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed. Use POST." });
-
   const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) return sendJson(res, 500, { error: "Missing REPLICATE_API_TOKEN env var." });
+  if (!token) return sendJson(res, 500, { ok: false, error: "Missing REPLICATE_API_TOKEN env var." });
+
+  // ---------- GET: polling endpoint ----------
+  if (req.method === "GET") {
+    const id = getQueryParam(req, "id");
+    if (!id) return sendJson(res, 400, { ok: false, error: "Missing query param: id" });
+
+    try {
+      const p = await fetchPrediction(id, token);
+      const outputUrl = firstOutputUrl(p.output);
+
+      return sendJson(res, 200, {
+        ok: true,
+        predictionId: p.id,
+        status: p.status,
+        outputUrl,
+        output: p.output ?? null,
+        error: p.error ?? null,
+      });
+    } catch (err) {
+      const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
+      return sendJson(res, status, {
+        ok: false,
+        error: err.message || "Server error",
+        replicateStatus: err.httpStatus || null,
+        replicatePayload: err.payload || null,
+      });
+    }
+  }
+
+  // ---------- POST: create & (try) return result ----------
+  if (req.method !== "POST") {
+    return sendJson(res, 405, { ok: false, error: "Method not allowed. Use POST." });
+  }
 
   let body;
   try {
     body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
   } catch {
-    return sendJson(res, 400, { error: "Invalid JSON body." });
+    return sendJson(res, 400, { ok: false, error: "Invalid JSON body." });
   }
 
   const {
-    // Content image (support both new and old keys)
+    // Content image
     imageBase64,
-    image, // ✅ alias قديم (لأنه عندك الفرونت يرسل image)
+    image, // alias (your frontend currently sends `image`)
     imageUrl,
     mimeType = "image/jpeg",
 
-    // Style image (NST)
-    styleUrl = DEFAULT_STARRY_NIGHT_STYLE_URL,
+    // Style image (required unless DEFAULT_STYLE_URL is set)
+    styleUrl,
     styleBase64,
 
-    // Mode: "nst" (default) or "sdxl"
+    // Mode
     mode = "nst",
 
-    // SDXL optional overrides
+    // SDXL overrides (optional)
     sdxlPrompt,
     sdxlNegativePrompt,
     promptStrength,
@@ -266,17 +293,25 @@ export default async function handler(req, res) {
     seed,
   } = body || {};
 
-  // ✅ accept imageUrl OR (imageBase64/image) as data URL/base64
   const content = imageUrl || normalizeToDataUrl(imageBase64 || image, mimeType);
   if (!content) {
-    return sendJson(res, 400, { error: "Provide imageBase64/image (data URL or base64) or imageUrl." });
+    return sendJson(res, 400, { ok: false, error: "Provide imageUrl OR image/imageBase64 (data URL or base64)." });
   }
 
-  const style =
-    styleUrl || normalizeToDataUrl(styleBase64, "image/jpeg") || DEFAULT_STARRY_NIGHT_STYLE_URL;
+  const envDefaultStyle = process.env.DEFAULT_STYLE_URL || null;
+  const style = styleUrl || normalizeToDataUrl(styleBase64, "image/jpeg") || envDefaultStyle;
+
+  if (!style) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: "Missing style image. Provide styleUrl/styleBase64 OR set DEFAULT_STYLE_URL in Vercel env.",
+    });
+  }
 
   try {
-    // ---------- SDXL fallback (optional) ----------
+    let created;
+
+    // SDXL fallback
     if (mode === "sdxl") {
       const prompt =
         sdxlPrompt ||
@@ -290,71 +325,35 @@ export default async function handler(req, res) {
         prompt,
         negative_prompt: negative,
         image: content,
-
-        // Keep LOW to preserve content. High values cause hallucination/morphing.
         prompt_strength: typeof promptStrength === "number" ? promptStrength : 0.22,
         guidance_scale: typeof guidanceScale === "number" ? guidanceScale : 6.5,
         num_inference_steps: typeof numInferenceSteps === "number" ? numInferenceSteps : 30,
       };
-
       if (typeof seed === "number") input.seed = seed;
 
-      const created = await createPredictionByOfficialModel({
-        model: SDXL_OFFICIAL,
-        input,
-        token,
-      });
+      created = await createPredictionByOfficialModel({ model: SDXL_OFFICIAL, input, token });
+    } else {
+      // NST default (content-preserving)
+      let modelUsed = NST_PRIMARY;
+      let versionId;
 
-      const done = await pollPrediction(created, token, { maxWaitMs: 4 * 60 * 1000 });
-      const outputUrl = firstOutputUrl(done.output);
+      try {
+        versionId = await getLatestVersionId(NST_PRIMARY.owner, NST_PRIMARY.name, token);
+      } catch {
+        modelUsed = NST_FALLBACK;
+        versionId = await getLatestVersionId(NST_FALLBACK.owner, NST_FALLBACK.name, token);
+      }
 
-      return sendJson(res, 200, {
-        mode: "sdxl",
-        predictionId: done.id,
-        status: done.status,
-        outputUrl,
-        output: done.output,
-      });
+      const version = `${modelUsed.owner}/${modelUsed.name}:${versionId}`;
+      const input = { content, style };
+
+      created = await createPredictionByVersion({ version, input, token });
+      created._modelUsed = `${modelUsed.owner}/${modelUsed.name}`;
     }
 
-    // ---------- Default: NST (content-preserving) ----------
-    let modelUsed = NST_PRIMARY;
-    let versionId;
+    // Try to finish within a safe time budget (avoid Vercel timeouts)
+    const timeBudgetMs = 55000; // ~55s
+    const polled = await pollPredictionUntil({ id: created.id, token, timeBudgetMs });
 
-    try {
-      versionId = await getLatestVersionId(NST_PRIMARY.owner, NST_PRIMARY.name, token);
-    } catch (e) {
-      modelUsed = NST_FALLBACK;
-      versionId = await getLatestVersionId(NST_FALLBACK.owner, NST_FALLBACK.name, token);
-    }
-
-    const version = `${modelUsed.owner}/${modelUsed.name}:${versionId}`;
-
-    // Most NST models accept content/style inputs
-    const input = { content, style };
-
-    const created = await createPredictionByVersion({ version, input, token });
-    const done = await pollPrediction(created, token, { maxWaitMs: 3 * 60 * 1000 });
-
-    const outputUrl = firstOutputUrl(done.output);
-
-    // ✅ Return outputUrl explicitly so frontend can always use it
-    return sendJson(res, 200, {
-      mode: "nst",
-      model: `${modelUsed.owner}/${modelUsed.name}`,
-      predictionId: done.id,
-      status: done.status,
-      outputUrl,
-      output: done.output,
-      styleUsed: style,
-    });
-  } catch (err) {
-    const status =
-      err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
-    return sendJson(res, status, {
-      error: err.message || "Server error",
-      replicateStatus: err.httpStatus || null,
-      replicatePayload: err.payload || null,
-    });
-  }
-};
+    if (polled.done) {
+      const done
