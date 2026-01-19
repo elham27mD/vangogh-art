@@ -11,74 +11,57 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // اسم الموديل المتخصص في نقل الستايل
-    const modelOwner = "nightmareai";
-    const modelName = "style-transfer";
+    console.log("Using Official SDXL Model with Low Strength...");
 
-    // -------------------------------------------------------------------------
-    // الخطوة 1: جلب رقم أحدث إصدار تلقائياً (الحل الجذري لمشكلة 422)
-    //
-    // -------------------------------------------------------------------------
-    console.log(`Fetching latest version for ${modelOwner}/${modelName}...`);
-    const modelResponse = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
+    // 1. استخدام الرابط الرسمي للموديل (Official Model Endpoint)
+    // هذا الرابط لا يحتاج إلى version ID ولا يتغير أبداً
+    const response = await fetch(
+      "https://api.replicate.com/v1/models/stability-ai/sdxl/predictions",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Prefer": "wait=60" //
+        },
+        body: JSON.stringify({
+          input: {
+            image: image,
+            
+            // ✅ البرومبت المصحح: حذفنا كلمة portrait لكي لا يخترع وجوهاً
+            // نركز فقط على "تطبيق الستايل" على "الصورة الموجودة"
+            prompt: "Style transfer of The Starry Night by Vincent Van Gogh. Oil painting texture, thick impasto brushstrokes, swirling blue and yellow patterns. Keep the original object shape and structure exactly as is, just change the texture.",
+            
+            // ✅ الممنوعات: نمنع تغيير الهيكل أو إضافة عناصر
+            negative_prompt: "alter shape, change content, face, portrait, perfume, extra items, text, watermark, blurry, deformed, low quality, realism, photo",
+            
+            // ✅✅ السر هنا: خفضنا القوة إلى 0.5
+            // 0.5 = 50% من الصورة الأصلية + 50% ستايل (يحافظ على الثوب كما هو ويغير ألوانه فقط)
+            // إذا كان التغيير ضعيفاً، ارفعه لـ 0.55، لكن لا تتجاوز 0.6 مع الأشياء الجامدة
+            prompt_strength: 0.50,
+            
+            num_inference_steps: 30
+          }
+        }),
       }
-    });
+    );
 
-    if (!modelResponse.ok) {
-       throw new Error(`Failed to find model: ${modelResponse.status}`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || errorData.error || "Failed to create prediction");
     }
 
-    const modelData = await modelResponse.json();
-    // نأخذ الـ ID الصحيح والشغال حالياً من استجابة السيرفر
-    const latestVersionId = modelData.latest_version.id;
-    console.log("Using Version ID:", latestVersionId);
+    let prediction = await response.json();
 
-    // -------------------------------------------------------------------------
-    // الخطوة 2: إرسال الصورة مع ستايل "The Starry Night"
-    //
-    // -------------------------------------------------------------------------
-    
-    // رابط لوحة ليلة النجوم الأصلية
-    const starryNightUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
-
-    const predictionResponse = await fetch("https://api.replicate.com/v1/predictions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "Prefer": "wait=50" //
-      },
-      body: JSON.stringify({
-        version: latestVersionId, // نستخدم الرقم الذي جلبناه تواً
-        input: {
-          content: image,          // صورتك
-          style: starryNightUrl,   // لوحة فان جوخ
-          content_strength: 0.85,  // الحفاظ على ملامح الصورة الأصلية
-          style_strength: 1.0,     // قوة الستايل
-        }
-      }),
-    });
-
-    if (!predictionResponse.ok) {
-      const err = await predictionResponse.json();
-      throw new Error(err.detail || "Prediction failed to start");
-    }
-
-    let prediction = await predictionResponse.json();
-
-    // -------------------------------------------------------------------------
-    // الخطوة 3: انتظار اكتمال المعالجة
-    //
-    // -------------------------------------------------------------------------
+    // 2. انتظار النتيجة (Polling)
     while (prediction.status === "starting" || prediction.status === "processing") {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       
-      const pollResponse = await fetch(prediction.urls.get, { 
-        headers: { "Authorization": `Bearer ${token}` }
+      const pollResponse = await fetch(prediction.urls.get, { //
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       });
 
       if (!pollResponse.ok) throw new Error("Polling failed");
@@ -86,7 +69,7 @@ export default async function handler(req, res) {
     }
 
     if (prediction.status === "succeeded") {
-       res.status(200).json({ output: prediction.output });
+       res.status(200).json({ output: prediction.output[0] });
     } else {
        res.status(500).json({ error: prediction.error });
     }
