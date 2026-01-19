@@ -2,15 +2,12 @@ export const transformToVanGogh = async (base64Image: string): Promise<string> =
   try {
     const response = await fetch("/api/generate", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // ✅ backend الجديد يستقبل imageBase64
-        imageBase64: base64Image,
-        // إذا base64Image أصلاً data URL، ما تحتاج mimeType
-        // mimeType: "image/jpeg",
-        mode: "nst", // خليها الافتراضي (يحافظ على الشكل)
+        image: base64Image,      // ما زلنا ندعم الحقل القديم
+        // أو لو تستخدم الجديد:
+        // imageBase64: base64Image,
+        // mode: "nst",
       }),
     });
 
@@ -21,11 +18,14 @@ export const transformToVanGogh = async (base64Image: string): Promise<string> =
       throw new Error(data.error || "فشل الاتصال بالموديل");
     }
 
-    // ✅ استخدم outputUrl أولاً (هو اللي نضمنه)
-    const url = data.outputUrl || data.output;
+    // أهم سطر: استخرج الرابط من أي شكل يرجع من السيرفر
+    const url =
+      data.outputUrl ||
+      (typeof data.output === "string" ? data.output : null) ||
+      (Array.isArray(data.output) ? data.output[0] : null);
 
     if (!url || typeof url !== "string") {
-      console.error("Unexpected output shape:", data);
+      console.error("Unexpected API response:", data);
       throw new Error("النتيجة رجعت بدون رابط صالح للصورة.");
     }
 
