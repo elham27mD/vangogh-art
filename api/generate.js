@@ -1,5 +1,3 @@
-// api/generate.js - هذا الكود مخصص لستايل "ليلة النجوم"
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -13,52 +11,76 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // موديل متخصص في دمج الستايل (Neural Style Transfer)
-    const modelId = "nightmareai/style-transfer:c7d017645d3198017411595261313353770c07524443517ac112436405046006";
+    // اسم الموديل المتخصص في نقل الستايل
+    const modelOwner = "nightmareai";
+    const modelName = "style-transfer";
 
-    // 🔥🔥🔥 هنا السر: رابط مباشر للوحة "The Starry Night" 🔥🔥🔥
-    // الموديل سيستخدم هذه الصورة كمرجع للأسلوب الفني
-    const vanGoghStyleImage = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
+    // -------------------------------------------------------------------------
+    // الخطوة 1: جلب رقم أحدث إصدار تلقائياً (الحل الجذري لمشكلة 422)
+    //
+    // -------------------------------------------------------------------------
+    console.log(`Fetching latest version for ${modelOwner}/${modelName}...`);
+    const modelResponse = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!modelResponse.ok) {
+       throw new Error(`Failed to find model: ${modelResponse.status}`);
+    }
+
+    const modelData = await modelResponse.json();
+    // نأخذ الـ ID الصحيح والشغال حالياً من استجابة السيرفر
+    const latestVersionId = modelData.latest_version.id;
+    console.log("Using Version ID:", latestVersionId);
+
+    // -------------------------------------------------------------------------
+    // الخطوة 2: إرسال الصورة مع ستايل "The Starry Night"
+    //
+    // -------------------------------------------------------------------------
+    
+    // رابط لوحة ليلة النجوم الأصلية
+    const starryNightUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
 
     const predictionResponse = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
-        "Prefer": "wait=50"
+        "Prefer": "wait=50" //
       },
       body: JSON.stringify({
-        version: modelId,
+        version: latestVersionId, // نستخدم الرقم الذي جلبناه تواً
         input: {
-          // صورتك الأصلية
-          content: image, 
-          
-          // صورة الستايل (ليلة النجوم)
-          style: vanGoghStyleImage,
-          
-          // content_strength: الحفاظ على ملامح الصورة الأصلية (0.85 ممتاز)
-          // إذا أردت الستايل يطغى أكثر، قلل هذا الرقم إلى 0.7
-          content_strength: 0.85, 
-          
-          // style_strength: قوة تطبيق ستايل فان جوخ (1.0 كاملة)
-          style_strength: 1.0,
+          content: image,          // صورتك
+          style: starryNightUrl,   // لوحة فان جوخ
+          content_strength: 0.85,  // الحفاظ على ملامح الصورة الأصلية
+          style_strength: 1.0,     // قوة الستايل
         }
       }),
     });
 
     if (!predictionResponse.ok) {
       const err = await predictionResponse.json();
-      throw new Error(err.detail || "Prediction failed");
+      throw new Error(err.detail || "Prediction failed to start");
     }
 
     let prediction = await predictionResponse.json();
 
-    // انتظار النتيجة
+    // -------------------------------------------------------------------------
+    // الخطوة 3: انتظار اكتمال المعالجة
+    //
+    // -------------------------------------------------------------------------
     while (prediction.status === "starting" || prediction.status === "processing") {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      const pollResponse = await fetch(prediction.urls.get, {
-        headers: {"Authorization": `Bearer ${token}`}
+      
+      const pollResponse = await fetch(prediction.urls.get, { 
+        headers: { "Authorization": `Bearer ${token}` }
       });
+
       if (!pollResponse.ok) throw new Error("Polling failed");
       prediction = await pollResponse.json();
     }
