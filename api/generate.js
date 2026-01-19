@@ -37,17 +37,20 @@ export default async function handler(req, res) {
         input: {
           image: image,
           
-          // ✅ التركيز على الستايل مع الحفاظ على هوية الشخص
-          prompt: "Vincent Van Gogh The Starry Night style, oil painting texture, heavy impasto brushstrokes, vibrant swirling blue and yellow colors, expressionist masterpiece",
+          // 🔥 تعديل 1: برومبت قوي جداً يركز على "الدوامات" و "الألوان"
+          prompt: "Masterpiece oil painting by Vincent Van Gogh, The Starry Night style. Strong thick impasto brushstrokes, swirling deep blue and vibrant yellow sky patterns, expressive texture, dreamlike atmosphere. Keep the main subject visible but stylized.",
           
-          // ✅✅ التصحيح هنا:
-          // حذفنا (beard, mustache) لكي لا يحذف لحية المستخدم الأصلية
-          // أبقينا (Van Gogh face, self-portrait) لمنع الموديل من رسم فان غوخ بدلاً منك
-          negative_prompt: "photorealistic, realism, photography, smooth, flat, blurry, text, watermark, low quality, distorted, ugly",
+          // الممنوعات (نفس السابقة لحماية الشكل)
+          negative_prompt: "photorealistic, realism, photography, smooth, flat, blurry, text, watermark, low quality, distorted, ugly, perfume, bottle, product",
           
-          // قوة التأثير: 0.65 ممتازة للموازنة بين الستايل والملامح
-          prompt_strength: 0.45,
-          num_inference_steps: 30
+          // 🔥 تعديل 2: رفعنا القوة إلى 0.65
+          // هذا هو الحد الفاصل: أعلى من كذا يخرب الشكل، وأقل من كذا يضعف الستايل
+          prompt_strength: 0.65,
+          
+          // زدنا حدة التوجيه قليلاً ليسمع كلام البرومبت أكثر من الصورة
+          guidance_scale: 7.5, 
+          
+          num_inference_steps: 35 // زدنا الخطوات قليلاً لتحسين الجودة
         }
       }),
     });
