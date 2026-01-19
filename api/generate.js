@@ -46,7 +46,7 @@ export default async function handler(req, res) {
           negative_prompt: "photorealistic, realism, photography, smooth, flat, blurry, text, watermark, low quality, distorted, ugly",
           
           // قوة التأثير: 0.65 ممتازة للموازنة بين الستايل والملامح
-          prompt_strength: 0..45,
+          prompt_strength: 0.45,
           num_inference_steps: 30
         }
       }),
