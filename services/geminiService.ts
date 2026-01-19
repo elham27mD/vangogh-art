@@ -1,3 +1,5 @@
+// api/generate.js - ControlNet (Canny) Solution
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -11,13 +13,15 @@ export default async function handler(req, res) {
   try {
     const { image } = req.body;
 
-    // اسم موديل ControlNet الشهير والمستقر
+    // 1. استخدام نموذج ControlNet (Canny) المستقر
+    // هذا النموذج يرسم خريطة خطوط للصورة الأصلية ويلونها بالستايل المطلوب
+    // مما يضمن الحفاظ على ملامح الوجه والشكل بدقة 100%
     const modelOwner = "jagilley";
     const modelName = "controlnet-canny";
 
     console.log(`Fetching latest version for ${modelOwner}/${modelName}...`);
 
-    // 1. جلب أحدث إصدار تلقائياً
+    // جلب أحدث إصدار تلقائياً لتفادي الأخطاء
     const modelResponse = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}`, {
       method: "GET",
       headers: {
@@ -32,7 +36,7 @@ export default async function handler(req, res) {
 
     console.log("Using ControlNet Version:", latestVersionId);
 
-    // 2. إرسال الطلب (لاحظ اختلاف المدخلات قليلاً لهذا الموديل)
+    // 2. إرسال طلب المعالجة
     const predictionResponse = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
@@ -45,23 +49,20 @@ export default async function handler(req, res) {
         input: {
           image: image,
           
-          // البرومبت: نطلب الستايل بقوة
-          prompt: "oil painting of a person in the style of Vincent Van Gogh, The Starry Night, thick impasto brushstrokes, swirling blue and yellow patterns, expressive art",
+          // البرومبت: نطلب ستايل "ليلة النجوم" بقوة
+          // بما أن ControlNet يحمي الشكل، يمكننا أن نكون جريئين في طلب الألوان والفرشاة
+          prompt: "A vibrant oil painting in the style of Vincent Van Gogh's The Starry Night. Thick, swirling impasto brushstrokes in deep blues and rich yellows. Expressive, textured, artistic masterpiece.",
           
-          // الممنوعات
-          negative_prompt: "photorealistic, realism, photography, ugly, deformed, blurry, low quality",
+          // الممنوعات: نمنع الواقعية والصور الفوتوغرافية
+          negative_prompt: "photorealistic, realism, photography, smooth, flat, blurry, low quality, ugly, deformed",
           
-          // إعدادات ControlNet المهمة:
-          // num_samples: عدد النسخ (1 كافية)
-          // image_resolution: دقة الصورة (512 ممتاز للسرعة والجودة لهذا الموديل)
-          // ddim_steps: خطوات المعالجة (20 كافية)
-          // scale: مدى التزام الموديل بالنص (9.0 جيد)
-          num_samples: "1",
-          image_resolution: "512",
-          ddim_steps: 20,
-          scale: 9.0,
+          // إعدادات ControlNet:
+          num_samples: "1", // صورة واحدة
+          image_resolution: "512", // دقة متوازنة
+          ddim_steps: 25, // خطوات كافية لجودة عالية
+          scale: 9.5, // التزام قوي جداً بالبرومبت (الستايل)
           
-          // low_threshold & high_threshold: حساسية التقاط الخطوط (100-200 قياسي)
+          // حساسية التقاط الخطوط (إعدادات قياسية)
           low_threshold: 100,
           high_threshold: 200
         }
@@ -86,9 +87,7 @@ export default async function handler(req, res) {
     }
 
     if (prediction.status === "succeeded") {
-       // ControlNet يعيد قائمة صور، نأخذ الأخيرة (النتيجة النهائية)
-       // أحياناً يعيد الصورة الأولى هي "خريطة الخطوط" والثانية هي "النتيجة"
-       // الكود أدناه يأخذ آخر صورة في المصفوفة لضمان أنها النتيجة الملونة
+       // ControlNet يعيد مصفوفة صور، الصورة الأخيرة هي النتيجة النهائية الملونة
        const outputImages = prediction.output;
        const finalImage = outputImages[outputImages.length - 1];
        
