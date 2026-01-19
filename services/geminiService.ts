@@ -1,27 +1,22 @@
 /**
  * /api/generate.js  (Vercel Serverless Function)
  *
- * Default mode: Neural Style Transfer (NST) to preserve content structure (thobe/face/edges)
- * Optional mode: SDXL img2img fallback with conservative prompt_strength to reduce hallucinations
- *
- * Required env:
- *   REPLICATE_API_TOKEN = r8_...
+ * Mode: Neural Style Transfer (NST) - The best for preserving structure.
  */
 
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
 
-// Public-domain Starry Night reference image (Wikimedia)
+// Public-domain Starry Night reference image
 const DEFAULT_STARRY_NIGHT_STYLE_URL =
   "https://upload.wikimedia.org/wikipedia/commons/d/de/Vincent_van_Gogh_Starry_Night.jpg";
 
-// Community NST models (need version hash). We resolve latest version dynamically.
+// Community NST models
 const NST_PRIMARY = { owner: "huage001", name: "adaattn" };
 const NST_FALLBACK = { owner: "nkolkin13", name: "neuralneighborstyletransfer" };
 
-// Official SDXL model endpoint (no version hash needed when using /v1/models/{owner}/{name}/predictions)
 const SDXL_OFFICIAL = "stability-ai/sdxl";
 
-// In-memory cache (warm lambda reuse only)
+// Cache for version IDs
 let cachedLatestVersion = {
   key: "",
   versionId: "",
@@ -91,7 +86,6 @@ async function getLatestVersionId(owner, name, token) {
   const key = `${owner}/${name}`;
   const now = Date.now();
 
-  // Cache for 6 hours (best-effort)
   if (cachedLatestVersion.key === key && cachedLatestVersion.versionId && now - cachedLatestVersion.fetchedAt < 6 * 60 * 60 * 1000) {
     return cachedLatestVersion.versionId;
   }
@@ -106,7 +100,6 @@ async function getLatestVersionId(owner, name, token) {
 }
 
 async function createPredictionByVersion({ version, input, token }) {
-  // Community models: POST /v1/predictions with {version: "...:hash", input:{...}}
   return replicateFetch(`/predictions`, {
     token,
     method: "POST",
@@ -117,7 +110,6 @@ async function createPredictionByVersion({ version, input, token }) {
 }
 
 async function createPredictionByOfficialModel({ model, input, token }) {
-  // Official model endpoint: POST /v1/models/{owner}/{name}/predictions
   return replicateFetch(`/models/${model}/predictions`, {
     token,
     method: "POST",
@@ -157,22 +149,9 @@ async function pollPrediction(prediction, token, { maxWaitMs = 3 * 60 * 1000 } =
   }
 }
 
-/**
- * IMPORTANT:
- * Replicate "output" may be:
- * - string URL
- * - array of string URLs
- * - object like { image: "url" } or { output: "url" }
- * - array of objects like [{ url: "..." }, { image: "..." }]
- * This function tries hard to extract the first usable URL.
- */
 function firstOutputUrl(output) {
   if (!output) return null;
-
-  // direct string
   if (typeof output === "string") return output;
-
-  // array
   if (Array.isArray(output)) {
     for (const item of output) {
       const u = firstOutputUrl(item);
@@ -180,39 +159,17 @@ function firstOutputUrl(output) {
     }
     return null;
   }
-
-  // object
   if (typeof output === "object") {
-    const candidates = [
-      output.url,
-      output.image,
-      output.output,
-      output.result,
-      output.href,
-      output.file,
-      output.files,
-      output.images,
-      output.results,
-    ];
-
+    const candidates = [output.url, output.image, output.output, output.result];
     for (const c of candidates) {
       const u = firstOutputUrl(c);
       if (u) return u;
     }
-
-    // last resort: scan string values
-    for (const v of Object.values(output)) {
-      if (typeof v === "string" && v.startsWith("http")) return v;
-      const u = firstOutputUrl(v);
-      if (u) return u;
-    }
   }
-
   return null;
 }
 
 module.exports = async function handler(req, res) {
-  // CORS (adjust origin if needed)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -220,7 +177,9 @@ module.exports = async function handler(req, res) {
 
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed. Use POST." });
 
+  // ✅ تم التعديل: استخدام REPLICATE_API_TOKEN
   const token = process.env.REPLICATE_API_TOKEN;
+  
   if (!token) return sendJson(res, 500, { error: "Missing REPLICATE_API_TOKEN env var." });
 
   let body;
@@ -231,19 +190,12 @@ module.exports = async function handler(req, res) {
   }
 
   const {
-    // Content image
     imageBase64,
     imageUrl,
     mimeType = "image/jpeg",
-
-    // Style image (NST)
     styleUrl = DEFAULT_STARRY_NIGHT_STYLE_URL,
     styleBase64,
-
-    // Mode: "nst" (default) or "sdxl"
-    mode = "nst",
-
-    // SDXL optional overrides
+    mode = "nst", 
     sdxlPrompt,
     sdxlNegativePrompt,
     promptStrength,
@@ -258,27 +210,18 @@ module.exports = async function handler(req, res) {
   const style = styleUrl || normalizeToDataUrl(styleBase64, "image/jpeg") || DEFAULT_STARRY_NIGHT_STYLE_URL;
 
   try {
-    // ---------- SDXL fallback (optional) ----------
+    // --- SDXL Logic ---
     if (mode === "sdxl") {
-      const prompt =
-        sdxlPrompt ||
-        "same subject and composition as the input photo, preserve exact silhouette, folds, edges and facial structure, render with thick oil paint impasto and swirling brushstrokes inspired by Vincent van Gogh's The Starry Night, vivid blues and yellows";
-
-      const negative =
-        sdxlNegativePrompt ||
-        "text, watermark, logo, words, label, bottle, perfume, product, face swap, different person, deformed, extra limbs, cartoon, low quality, blurry, artifacts";
-
+      const prompt = sdxlPrompt || "Vincent Van Gogh Style";
+      const negative = sdxlNegativePrompt || "low quality";
       const input = {
         prompt,
         negative_prompt: negative,
         image: content,
-
-        // Keep LOW to preserve content. High values cause hallucination/morphing.
         prompt_strength: typeof promptStrength === "number" ? promptStrength : 0.22,
         guidance_scale: typeof guidanceScale === "number" ? guidanceScale : 6.5,
         num_inference_steps: typeof numInferenceSteps === "number" ? numInferenceSteps : 30,
       };
-
       if (typeof seed === "number") input.seed = seed;
 
       const created = await createPredictionByOfficialModel({
@@ -292,27 +235,24 @@ module.exports = async function handler(req, res) {
 
       return sendJson(res, 200, {
         mode: "sdxl",
-        predictionId: done.id,
-        status: done.status,
-        outputUrl,
-        output: done.output,
+        output: outputUrl, 
+        rawOutput: done.output
       });
     }
 
-    // ---------- Default: NST (content-preserving) ----------
+    // --- NST Logic ---
     let modelUsed = NST_PRIMARY;
     let versionId;
 
     try {
       versionId = await getLatestVersionId(NST_PRIMARY.owner, NST_PRIMARY.name, token);
     } catch (e) {
+      console.log("Primary NST failed, trying fallback...");
       modelUsed = NST_FALLBACK;
       versionId = await getLatestVersionId(NST_FALLBACK.owner, NST_FALLBACK.name, token);
     }
 
     const version = `${modelUsed.owner}/${modelUsed.name}:${versionId}`;
-
-    // Most NST models accept content/style inputs
     const input = { content, style };
 
     const created = await createPredictionByVersion({ version, input, token });
@@ -320,22 +260,19 @@ module.exports = async function handler(req, res) {
 
     const outputUrl = firstOutputUrl(done.output);
 
-    // IMPORTANT: Return outputUrl explicitly so frontend can always use it
     return sendJson(res, 200, {
       mode: "nst",
-      model: `${modelUsed.owner}/${modelUsed.name}`,
-      predictionId: done.id,
-      status: done.status,
-      outputUrl,
-      output: done.output,
-      styleUsed: style,
+      output: outputUrl, // ✅ إرجاع الرابط الصافي للواجهة الأمامية
+      outputUrl: outputUrl,
+      rawOutput: done.output
     });
+
   } catch (err) {
+    console.error("Handler Error:", err);
     const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
     return sendJson(res, status, {
       error: err.message || "Server error",
       replicateStatus: err.httpStatus || null,
-      replicatePayload: err.payload || null,
     });
   }
 };
