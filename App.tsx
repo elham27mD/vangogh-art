@@ -15,7 +15,7 @@ import { AppStage, GenerationResult } from './types';
 // --- دالة فحص الحد اليومي ---
 const checkDailyLimit = (): boolean => {
   const STORAGE_KEY = 'vangogh_daily_limit_v2'; // غيرنا المفتاح لتصفير العداد للتجربة
-  const MAX_REQUESTS = 5; // رفعنا الحد قليلاً للتجارب
+  const MAX_REQUESTS = 15; // رفعنا الحد قليلاً للتجارب
   const today = new Date().toDateString();
 
   const stored = localStorage.getItem(STORAGE_KEY);
