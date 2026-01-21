@@ -1,306 +1,132 @@
-/**
- * /api/generate.js (Vercel Serverless Function) - ESM
- *
- * Uses ONLY: jagilley/controlnet-depth-sdxl
- *
- * POST /api/generate
- *  - body: { image: <dataUrl or base64>, prompt?, negative_prompt?, ... }
- *  - returns 200 with outputUrl OR 202 with pollUrl
- *
- * GET /api/generate?id=<predictionId>
- *  - returns status + outputUrl when succeeded
- *
- * ENV (server-only):
- *  - REPLICATE_API_TOKEN (REQUIRED)
- */
+// services/geminiService.ts
 
-const REPLICATE_API_BASE = "https://api.replicate.com/v1";
+type Ok200 = {
+  ok: true;
+  status: string;
+  outputUrl?: string | null;
+  output?: any;
+};
 
-const MODEL_OWNER = "jagilley";
-const MODEL_NAME = "controlnet-depth-sdxl";
+type Ok202 = {
+  ok: true;
+  status: string;
+  predictionId: string;
+  pollUrl: string;
+};
 
-// Default prompt: Starry Night vibe while preserving identity.
-// (Avoid explicit ethnicity terms; preserve "identity, facial features, skin tone".)
-const DEFAULT_PROMPT =
-  "A textured oil painting in the style of Vincent van Gogh. Portrait of the same person from the input photo. Maintain the subject's identity, exact facial features, and skin tone. Preserve the original composition and clothing. Transform the background into the swirling blue and yellow sky patterns of 'The Starry Night'. Thick impasto brushwork.";
+type Err = {
+  ok: false;
+  error: string;
+  replicateStatus?: number | null;
+  replicatePayload?: any;
+};
 
-const DEFAULT_NEGATIVE =
-  "text, watermark, logo, words, label, different face, face swap, change identity, distorted features, deformed, extra limbs, cartoon, low quality, blurry, artifacts, photorealistic, smooth";
+type ApiResponse = Ok200 | Ok202 | Err;
 
-// Warm cache for latest version id (best-effort)
-let cachedVersion = { versionId: "", fetchedAt: 0 };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function sendJson(res, status, payload) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.end(JSON.stringify(payload));
-}
+function extractUrl(data: any): string | null {
+  if (!data) return null;
+  if (typeof data.outputUrl === "string" && data.outputUrl.startsWith("http")) return data.outputUrl;
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+  const out = data.output;
+  if (typeof out === "string") return out;
+  if (Array.isArray(out) && typeof out[0] === "string") return out[0];
 
-function normalizeToDataUrl(value, mimeType = "image/jpeg") {
-  if (!value || typeof value !== "string") return null;
-  if (value.startsWith("data:")) return value;
-  return `data:${mimeType};base64,${value}`;
-}
-
-async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 60000, preferWaitSeconds } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
-    if (preferWaitSeconds != null) headers.Prefer = `wait=${preferWaitSeconds}`;
-
-    const resp = await fetch(`${REPLICATE_API_BASE}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-
-    const text = await resp.text();
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
-
-    if (!resp.ok) {
-      const msg =
-        (data && data.detail) ||
-        (data && data.error) ||
-        (typeof data === "string" ? data : "Replicate API error");
-      const err = new Error(msg);
-      err.httpStatus = resp.status;
-      err.payload = data;
-      throw err;
-    }
-
-    return data;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function getLatestVersionId(token) {
-  const now = Date.now();
-  if (cachedVersion.versionId && now - cachedVersion.fetchedAt < 6 * 60 * 60 * 1000) {
-    return cachedVersion.versionId;
-  }
-
-  const model = await replicateFetch(`/models/${MODEL_OWNER}/${MODEL_NAME}`, { token, timeoutMs: 60000 });
-  const versionId = model?.latest_version?.id;
-  if (!versionId) throw new Error("Could not resolve latest_version.id");
-
-  cachedVersion = { versionId, fetchedAt: now };
-  return versionId;
-}
-
-async function createPrediction({ token, versionId, input }) {
-  // POST /v1/predictions { version: <hash>, input: {...} }
-  return replicateFetch(`/predictions`, {
-    token,
-    method: "POST",
-    preferWaitSeconds: 45,
-    timeoutMs: 60000,
-    body: { version: versionId, input },
-  });
-}
-
-async function fetchPrediction({ token, id }) {
-  return replicateFetch(`/predictions/${id}`, { token, timeoutMs: 60000 });
-}
-
-/**
- * Replicate output can be:
- * - string URL
- * - array of URLs
- * - object(s)
- */
-function firstOutputUrl(output) {
-  if (!output) return null;
-  if (typeof output === "string") return output;
-
-  if (Array.isArray(output)) {
-    for (const item of output) {
-      const u = firstOutputUrl(item);
-      if (u) return u;
-    }
-    return null;
-  }
-
-  if (typeof output === "object") {
-    const candidates = [output.url, output.image, output.output, output.result, output.href, output.file];
-    for (const c of candidates) {
-      const u = firstOutputUrl(c);
-      if (u) return u;
-    }
-    for (const v of Object.values(output)) {
-      if (typeof v === "string" && v.startsWith("http")) return v;
-      const u = firstOutputUrl(v);
-      if (u) return u;
-    }
-  }
   return null;
 }
 
-function getQueryParam(req, key) {
-  try {
-    if (req.query && req.query[key]) return req.query[key];
-  } catch {}
-  try {
-    const u = new URL(req.url, "http://localhost");
-    return u.searchParams.get(key);
-  } catch {
-    return null;
-  }
-}
+export const transformToVanGogh = async (base64Image: string): Promise<string> => {
+  // Create prediction
+  const resp = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image: base64Image, // data URL from your uploader/compressor
 
-async function pollWithinBudget({ token, id, budgetMs = 55000 }) {
+      // optional overrides:
+      // prompt: "...",
+      // negative_prompt: "...",
+      // strength: 0.8,
+      // guidance_scale: 12,
+      // num_inference_steps: 35,
+    }),
+  });
+
+  // Read as text first to avoid JSON.parse crash if Vercel returns HTML error page
+  const raw = await resp.text();
+  let data: ApiResponse;
+
+  try {
+    data = raw ? (JSON.parse(raw) as ApiResponse) : ({ ok: false, error: "Empty response" } as Err);
+  } catch {
+    console.error("Non-JSON response from /api/generate:", raw.slice(0, 800));
+    throw new Error("رد السيرفر ليس JSON. تحقق من Vercel Logs.");
+  }
+
+  // If server returned error
+  if (!resp.ok && resp.status !== 202) {
+    const msg = (data as Err)?.error || "فشلت المعالجة في السيرفر.";
+    throw new Error(msg);
+  }
+
+  // 200: done immediately
+  if (resp.status === 200) {
+    const url = extractUrl(data);
+    if (!url) {
+      console.error("Unexpected 200 response:", data);
+      throw new Error("النتيجة رجعت بدون رابط صالح للصورة.");
+    }
+    return url;
+  }
+
+  // 202: poll
+  const d202 = data as Ok202;
+  if (!d202.pollUrl) {
+    console.error("Missing pollUrl in 202 response:", data);
+    throw new Error("السيرفر رجع 202 بدون pollUrl.");
+  }
+
+  const maxWaitMs = 6 * 60 * 1000; // 6 minutes
   const started = Date.now();
   let delay = 900;
 
   while (true) {
-    const p = await fetchPrediction({ token, id });
-
-    if (p.status === "succeeded") return { done: true, prediction: p };
-
-    if (p.status === "failed" || p.status === "canceled") {
-      const err = new Error(p.error || "Prediction failed");
-      err.httpStatus = 502;
-      err.payload = p;
-      throw err;
+    if (Date.now() - started > maxWaitMs) {
+      throw new Error("انتهت مهلة الانتظار. حاول مرة أخرى.");
     }
-
-    if (Date.now() - started > budgetMs) return { done: false, prediction: p };
 
     await sleep(delay);
     delay = Math.min(Math.floor(delay * 1.35), 3500);
-  }
-}
 
-export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.end();
+    const pollResp = await fetch(d202.pollUrl, { method: "GET" });
+    const pollRaw = await pollResp.text();
 
-  const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) return sendJson(res, 500, { ok: false, error: "Missing REPLICATE_API_TOKEN env var." });
-
-  // GET: poll status
-  if (req.method === "GET") {
-    const id = getQueryParam(req, "id");
-    if (!id) return sendJson(res, 400, { ok: false, error: "Missing query param: id" });
-
+    let pollData: ApiResponse;
     try {
-      const p = await fetchPrediction({ token, id });
-      return sendJson(res, 200, {
-        ok: true,
-        predictionId: p.id,
-        status: p.status,
-        outputUrl: firstOutputUrl(p.output),
-        output: p.output ?? null,
-        error: p.error ?? null,
-      });
-    } catch (err) {
-      const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
-      return sendJson(res, status, {
-        ok: false,
-        error: err.message || "Server error",
-        replicateStatus: err.httpStatus || null,
-        replicatePayload: err.payload || null,
-      });
-    }
-  }
-
-  // POST: create prediction
-  if (req.method !== "POST") return sendJson(res, 405, { ok: false, error: "Method not allowed. Use POST." });
-
-  let body;
-  try {
-    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-  } catch {
-    return sendJson(res, 400, { ok: false, error: "Invalid JSON body." });
-  }
-
-  const {
-    imageBase64,
-    image, // your frontend sends `image`
-    imageUrl,
-    mimeType = "image/jpeg",
-
-    prompt,
-    negative_prompt,
-    num_inference_steps,
-    guidance_scale,
-    strength,
-    seed,
-  } = body || {};
-
-  const content = imageUrl || normalizeToDataUrl(imageBase64 || image, mimeType);
-  if (!content) return sendJson(res, 400, { ok: false, error: "Provide imageUrl OR image/imageBase64." });
-
-  try {
-    const versionId = await getLatestVersionId(token);
-
-    const input = {
-      image: content,
-      prompt: typeof prompt === "string" && prompt.trim() ? prompt : DEFAULT_PROMPT,
-      negative_prompt:
-        typeof negative_prompt === "string" && negative_prompt.trim() ? negative_prompt : DEFAULT_NEGATIVE,
-
-      // model params (safe defaults)
-      num_inference_steps: typeof num_inference_steps === "number" ? num_inference_steps : 35,
-      guidance_scale: typeof guidance_scale === "number" ? guidance_scale : 12.0,
-      strength: typeof strength === "number" ? strength : 0.8,
-    };
-
-    if (typeof seed === "number") input.seed = seed;
-
-    const created = await createPrediction({ token, versionId, input });
-
-    // Try to finish quickly within ~55s to avoid function timeout
-    const polled = await pollWithinBudget({ token, id: created.id, budgetMs: 55000 });
-
-    if (polled.done) {
-      const done = polled.prediction;
-      return sendJson(res, 200, {
-        ok: true,
-        model: `${MODEL_OWNER}/${MODEL_NAME}`,
-        versionId,
-        predictionId: done.id,
-        status: done.status,
-        outputUrl: firstOutputUrl(done.output),
-        output: done.output,
-      });
+      pollData = pollRaw ? (JSON.parse(pollRaw) as ApiResponse) : ({ ok: false, error: "Empty poll response" } as Err);
+    } catch {
+      console.error("Non-JSON polling response:", pollRaw.slice(0, 800));
+      throw new Error("رد السيرفر ليس JSON أثناء polling. تحقق من Vercel Logs.");
     }
 
-    // Not done yet -> 202 + pollUrl
-    return sendJson(res, 202, {
-      ok: true,
-      model: `${MODEL_OWNER}/${MODEL_NAME}`,
-      versionId,
-      predictionId: created.id,
-      status: polled.prediction.status,
-      pollUrl: `/api/generate?id=${encodeURIComponent(created.id)}`,
-      message: "Processing. Poll pollUrl until status is succeeded.",
-    });
-  } catch (err) {
-    const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
-    return sendJson(res, status, {
-      ok: false,
-      error: err.message || "Server error",
-      replicateStatus: err.httpStatus || null,
-      replicatePayload: err.payload || null,
-    });
+    if (!pollResp.ok) {
+      const msg = (pollData as Err)?.error || "فشل polling.";
+      throw new Error(msg);
+    }
+
+    const status = (pollData as any).status;
+    if (status === "succeeded") {
+      const url = extractUrl(pollData);
+      if (!url) {
+        console.error("Succeeded but no url:", pollData);
+        throw new Error("نجحت المعالجة لكن لم يرجع رابط صورة صالح.");
+      }
+      return url;
+    }
+
+    if (status === "failed" || status === "canceled") {
+      throw new Error("فشلت المعالجة داخل Replicate.");
+    }
   }
-}
+};
