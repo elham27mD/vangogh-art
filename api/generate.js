@@ -1,37 +1,37 @@
 /**
- * /api/generate.js (Vercel Serverless Function) - ESM
- * Uses ONLY: jagilley/controlnet-depth-sdxl (dynamic latest version)
- * Goal: Strong Starry Night look while preserving identity/structure via depth conditioning.
+ * /api/generate.js
  *
- * ENV:
- *  - REPLICATE_API_TOKEN
+ * FINAL MERGE:
+ * - Engine: ControlNet Depth (Vibrant & Structural) - Fixes "Faded/Buhata" look.
+ * - Infrastructure: Robust Polling & Error Handling from Code B.
  */
 
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
 
+// ✅ استخدام موديل ControlNet Depth (لأنه الوحيد الذي يعطي ألواناً قوية مع الحفاظ على الهيكل)
 const MODEL_OWNER = "jagilley";
 const MODEL_NAME = "controlnet-depth-sdxl";
 
-// In-memory cache
+// تخزين مؤقت لنسخة الموديل
 let cachedLatestVersion = { key: "", versionId: "", fetchedAt: 0 };
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(payload));
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// دالة معالجة الصور (تقبل base64 و Data URL)
+function normalizeToDataUrl(imageBase64, mimeType = "image/jpeg") {
+  if (!imageBase64 || typeof imageBase64 !== "string") return null;
+  if (imageBase64.startsWith("data:")) return imageBase64;
+  return `data:${mimeType};base64,${imageBase64}`;
 }
 
-function normalizeToDataUrl(value, mimeType = "image/jpeg") {
-  if (!value || typeof value !== "string") return null;
-  if (value.startsWith("data:")) return value;
-  return `data:${mimeType};base64,${value}`;
-}
-
-async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 60000, preferWaitSeconds } = {}) {
+// دالة الاتصال القوية (Replicate Fetch Wrapper)
+async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 45000, preferWaitSeconds } = {}) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -51,42 +51,29 @@ async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 6
 
     const text = await resp.text();
     let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
 
     if (!resp.ok) {
-      const msg =
-        (data && data.detail) ||
-        (data && data.error) ||
-        (typeof data === "string" ? data : "Replicate API error");
+      const msg = (data && data.detail) || (data && data.error) || (typeof data === "string" ? data : "Replicate API error");
       const err = new Error(msg);
       err.httpStatus = resp.status;
       err.payload = data;
       throw err;
     }
-
     return data;
-  } finally {
-    clearTimeout(t);
-  }
+  } finally { clearTimeout(t); }
 }
 
-async function getLatestVersionId(token) {
-  const key = `${MODEL_OWNER}/${MODEL_NAME}`;
+// جلب أحدث إصدار تلقائياً (لمنع أخطاء 404/422)
+async function getLatestVersionId(owner, name, token) {
+  const key = `${owner}/${name}`;
   const now = Date.now();
 
-  if (
-    cachedLatestVersion.key === key &&
-    cachedLatestVersion.versionId &&
-    now - cachedLatestVersion.fetchedAt < 6 * 60 * 60 * 1000
-  ) {
+  if (cachedLatestVersion.key === key && cachedLatestVersion.versionId && now - cachedLatestVersion.fetchedAt < 6 * 3600 * 1000) {
     return cachedLatestVersion.versionId;
   }
 
-  const model = await replicateFetch(`/models/${MODEL_OWNER}/${MODEL_NAME}`, { token, timeoutMs: 60000 });
+  const model = await replicateFetch(`/models/${owner}/${name}`, { token, timeoutMs: 30000 });
   const versionId = model?.latest_version?.id;
   if (!versionId) throw new Error(`Could not resolve latest_version.id for ${key}`);
 
@@ -94,30 +81,16 @@ async function getLatestVersionId(token) {
   return versionId;
 }
 
-async function createPrediction({ token, versionId, input }) {
-  return replicateFetch(`/predictions`, {
-    token,
-    method: "POST",
-    preferWaitSeconds: 60,
-    body: { version: versionId, input },
-    timeoutMs: 60000,
-  });
-}
-
-async function fetchPrediction({ token, id }) {
-  return replicateFetch(`/predictions/${id}`, { token, timeoutMs: 60000 });
-}
-
-async function pollPrediction(prediction, token, { maxWaitMs = 8 * 60 * 1000 } = {}) {
+// دالة الانتظار الذكية (Polling)
+async function pollPrediction(prediction, token, { maxWaitMs = 180000 } = {}) {
   const started = Date.now();
-  let delay = 900;
+  let delay = 1000;
   let current = prediction;
 
   while (true) {
     if (!current) throw new Error("Prediction missing");
 
     if (current.status === "succeeded") return current;
-
     if (current.status === "failed" || current.status === "canceled") {
       const err = new Error(current.error || "Prediction failed");
       err.httpStatus = 502;
@@ -133,57 +106,30 @@ async function pollPrediction(prediction, token, { maxWaitMs = 8 * 60 * 1000 } =
     }
 
     await sleep(delay);
-    delay = Math.min(Math.floor(delay * 1.35), 4000);
-
-    current = await fetchPrediction({ token, id: current.id });
+    delay = Math.min(Math.floor(delay * 1.5), 5000);
+    current = await replicateFetch(`/predictions/${current.id}`, { token, timeoutMs: 30000 });
   }
 }
 
+// استخراج الرابط النهائي (لمنع الصور المكسورة)
 function firstOutputUrl(output) {
   if (!output) return null;
-
   if (typeof output === "string") return output;
-
   if (Array.isArray(output)) {
-    for (const item of output) {
-      const u = firstOutputUrl(item);
-      if (u) return u;
-    }
-    return null;
+    // ControlNet غالباً يعيد مصفوفة، نأخذ آخر صورة لأنها النتيجة النهائية
+    const lastItem = output[output.length - 1];
+    return firstOutputUrl(lastItem);
   }
-
   if (typeof output === "object") {
-    const candidates = [output.url, output.image, output.output, output.result, output.href, output.file, output.files, output.images];
-    for (const c of candidates) {
-      const u = firstOutputUrl(c);
-      if (u) return u;
-    }
-    for (const v of Object.values(output)) {
-      if (typeof v === "string" && v.startsWith("http")) return v;
-      const u = firstOutputUrl(v);
-      if (u) return u;
-    }
+    return output.url || output.image || output.output || output.result || null;
   }
-
   return null;
 }
 
-/**
- * KEY CHANGE:
- * - Stop relying on "Style reference: URL" (not useful here).
- * - Make the Starry Night style description explicit and strong.
- */
-const DEFAULT_PROMPT =
-  "Vincent van Gogh Starry Night style oil painting. " +
-  "Thick impasto paint, heavy textured brushstrokes, swirling sky patterns, vivid cobalt blues, deep ultramarine, bright yellow highlights, energetic curved strokes. " +
-  "Preserve the exact subject identity, facial features, skin tone, clothing shape and folds, and the original composition. " +
-  "Keep the same person and same outfit; only transform the rendering into Starry Night painting style.";
+// --- المعالج الرئيسي (Handler) ---
 
-const DEFAULT_NEGATIVE =
-  "photorealistic, realistic photo, smooth skin, airbrushed, CGI, 3d render, cartoon, anime, manga, line art, watercolor, pastel, flat shading, " +
-  "text, watermark, logo, words, label, change identity, different face, face swap, different person, deformed, distorted features, extra limbs, blurry, low quality, artifacts";
-
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
+  // إعدادات CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -192,80 +138,62 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed. Use POST." });
 
   const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) return sendJson(res, 500, { error: "Missing REPLICATE_API_TOKEN env var." });
+  if (!token) return sendJson(res, 500, { error: "Missing REPLICATE_API_TOKEN" });
 
   let body;
-  try {
-    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-  } catch {
-    return sendJson(res, 400, { error: "Invalid JSON body." });
-  }
+  try { body = typeof req.body === "string" ? JSON.parse(req.body) : req.body; } 
+  catch { return sendJson(res, 400, { error: "Invalid JSON" }); }
 
-  const {
-    imageBase64,
-    image,
-    imageUrl,
-    mimeType = "image/jpeg",
-
-    prompt,
-    negative_prompt,
-
-    num_inference_steps,
-    guidance_scale,
-    strength,
-    seed,
-  } = body || {};
-
+  // استقبال الصورة بمرونة (image أو imageBase64)
+  const { imageBase64, image, imageUrl, mimeType = "image/jpeg" } = body || {};
   const content = imageUrl || normalizeToDataUrl(imageBase64 || image, mimeType);
-  if (!content) return sendJson(res, 400, { error: "Provide image (data URL/base64) or imageUrl." });
+  
+  if (!content) return sendJson(res, 400, { error: "No image provided" });
 
   try {
-    const versionId = await getLatestVersionId(token);
-
-    /**
-     * KEY CHANGE:
-     * - Lower strength so style can show up more.
-     * - Keep guidance_scale moderate-high so prompt is followed.
-     */
+    // 1. جلب نسخة الموديل
+    const versionId = await getLatestVersionId(MODEL_OWNER, MODEL_NAME, token);
+    
+    // 2. إعداد المدخلات (تضبيط الألوان والحدة)
     const input = {
       image: content,
-      prompt: typeof prompt === "string" && prompt.trim() ? prompt : DEFAULT_PROMPT,
-      negative_prompt: typeof negative_prompt === "string" && negative_prompt.trim() ? negative_prompt : DEFAULT_NEGATIVE,
-
-      num_inference_steps: typeof num_inference_steps === "number" ? num_inference_steps : 35,
-
-      // Slightly higher can help force style, but too high can distort
-      guidance_scale: typeof guidance_scale === "number" ? guidance_scale : 11.0,
-
-      // ↓ IMPORTANT: let style appear (try 0.55; adjust 0.45–0.70)
-      strength: typeof strength === "number" ? strength : 0.55,
+      
+      // 🔥 برومبت معدل للألوان الزاهية (Vibrant & Bright)
+      prompt: "A masterpiece oil painting in the style of Vincent Van Gogh, The Starry Night. Portrait of the subject in the input image. Vibrant, bright, and rich colors. High contrast. Thick impasto brushstrokes. The background is the swirling blue and yellow sky. Maintain exact facial features and identity.",
+      
+      // ⛔ منع الألوان الباهتة
+      negative_prompt: "dull, faded, washed out, dark, low contrast, blurry, flat, cartoon, change ethnicity, deformed, ugly",
+      
+      // ⚙️ إعدادات القوة
+      strength: 0.85,        // يحافظ على الهيكل بقوة
+      guidance_scale: 15.0,  // يرفع تشبع الألوان والستايل
+      num_inference_steps: 40,
+      image_resolution: 512,
+      condition_scale: 0.5   // يمنع الرسم المسطح
     };
 
-    if (typeof seed === "number") input.seed = seed;
+    // 3. بدء التوليد
+    const created = await replicateFetch(`/predictions`, {
+      token,
+      method: "POST",
+      preferWaitSeconds: 60,
+      body: { version: versionId, input },
+    });
 
-    const created = await createPrediction({ token, versionId, input });
-    const done = await pollPrediction(created, token, { maxWaitMs: 8 * 60 * 1000 });
+    // 4. انتظار النتيجة
+    const done = await pollPrediction(created, token);
+
+    // 5. استخراج الرابط
+    const outputUrl = firstOutputUrl(done.output);
 
     return sendJson(res, 200, {
-      mode: "controlnet-depth-sdxl",
-      model: `${MODEL_OWNER}/${MODEL_NAME}`,
-      versionId,
-      predictionId: done.id,
-      status: done.status,
-      outputUrl: firstOutputUrl(done.output),
-      output: done.output,
-      used: {
-        strength: input.strength,
-        guidance_scale: input.guidance_scale,
-        num_inference_steps: input.num_inference_steps,
-      },
+      status: "succeeded",
+      output: outputUrl, // رابط نصي مباشر للفرونت-إند
+      rawOutput: done.output
     });
+
   } catch (err) {
-    const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
-    return sendJson(res, status, {
-      error: err.message || "Server error",
-      replicateStatus: err.httpStatus || null,
-      replicatePayload: err.payload || null,
-    });
+    console.error("Handler Error:", err);
+    return sendJson(res, 500, { error: err.message || "Generation failed" });
   }
-}
+};
