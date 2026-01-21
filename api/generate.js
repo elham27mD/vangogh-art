@@ -1,19 +1,34 @@
 /**
  * /api/generate.js (Vercel Serverless Function) - ESM
  *
- * ENV:
- *   REPLICATE_API_TOKEN = r8_...
- * Optional:
- *   DEFAULT_STYLE_URL = https://www.elhamk23.art/style/Starry_Night.jpg
+ * Uses ONLY: jagilley/controlnet-depth-sdxl
+ *
+ * POST /api/generate
+ *  - body: { image: <dataUrl or base64>, prompt?, negative_prompt?, ... }
+ *  - returns 200 with outputUrl OR 202 with pollUrl
+ *
+ * GET /api/generate?id=<predictionId>
+ *  - returns status + outputUrl when succeeded
+ *
+ * ENV (server-only):
+ *  - REPLICATE_API_TOKEN (REQUIRED)
  */
 
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
 
-const NST_PRIMARY = { owner: "huage001", name: "adaattn" };
-const NST_FALLBACK = { owner: "nkolkin13", name: "neuralneighborstyletransfer" };
-const SDXL_OFFICIAL = "stability-ai/sdxl";
+const MODEL_OWNER = "jagilley";
+const MODEL_NAME = "controlnet-depth-sdxl";
 
-let cachedLatestVersion = { key: "", versionId: "", fetchedAt: 0 };
+// Default prompt: Starry Night vibe while preserving identity.
+// (Avoid explicit ethnicity terms; preserve "identity, facial features, skin tone".)
+const DEFAULT_PROMPT =
+  "A textured oil painting in the style of Vincent van Gogh. Portrait of the same person from the input photo. Maintain the subject's identity, exact facial features, and skin tone. Preserve the original composition and clothing. Transform the background into the swirling blue and yellow sky patterns of 'The Starry Night'. Thick impasto brushwork.";
+
+const DEFAULT_NEGATIVE =
+  "text, watermark, logo, words, label, different face, face swap, change identity, distorted features, deformed, extra limbs, cartoon, low quality, blurry, artifacts, photorealistic, smooth";
+
+// Warm cache for latest version id (best-effort)
+let cachedVersion = { versionId: "", fetchedAt: 0 };
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
@@ -31,47 +46,7 @@ function normalizeToDataUrl(value, mimeType = "image/jpeg") {
   return `data:${mimeType};base64,${value}`;
 }
 
-function firstOutputUrl(output) {
-  if (!output) return null;
-  if (typeof output === "string") return output;
-
-  if (Array.isArray(output)) {
-    for (const item of output) {
-      const u = firstOutputUrl(item);
-      if (u) return u;
-    }
-    return null;
-  }
-
-  if (typeof output === "object") {
-    const candidates = [
-      output.url,
-      output.image,
-      output.output,
-      output.result,
-      output.href,
-      output.file,
-      output.files,
-      output.images,
-      output.results,
-    ];
-
-    for (const c of candidates) {
-      const u = firstOutputUrl(c);
-      if (u) return u;
-    }
-
-    for (const v of Object.values(output)) {
-      if (typeof v === "string" && v.startsWith("http")) return v;
-      const u = firstOutputUrl(v);
-      if (u) return u;
-    }
-  }
-
-  return null;
-}
-
-async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 45000, preferWaitSeconds } = {}) {
+async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 60000, preferWaitSeconds } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -114,49 +89,66 @@ async function replicateFetch(path, { token, method = "GET", body, timeoutMs = 4
   }
 }
 
-async function getLatestVersionId(owner, name, token) {
-  const key = `${owner}/${name}`;
+async function getLatestVersionId(token) {
   const now = Date.now();
-
-  if (
-    cachedLatestVersion.key === key &&
-    cachedLatestVersion.versionId &&
-    now - cachedLatestVersion.fetchedAt < 6 * 60 * 60 * 1000
-  ) {
-    return cachedLatestVersion.versionId;
+  if (cachedVersion.versionId && now - cachedVersion.fetchedAt < 6 * 60 * 60 * 1000) {
+    return cachedVersion.versionId;
   }
 
-  const model = await replicateFetch(`/models/${owner}/${name}`, { token, timeoutMs: 45000 });
+  const model = await replicateFetch(`/models/${MODEL_OWNER}/${MODEL_NAME}`, { token, timeoutMs: 60000 });
   const versionId = model?.latest_version?.id;
+  if (!versionId) throw new Error("Could not resolve latest_version.id");
 
-  if (!versionId) throw new Error(`Could not resolve latest_version.id for ${key}`);
-
-  cachedLatestVersion = { key, versionId, fetchedAt: now };
+  cachedVersion = { versionId, fetchedAt: now };
   return versionId;
 }
 
-async function createPredictionByVersion({ version, input, token }) {
+async function createPrediction({ token, versionId, input }) {
+  // POST /v1/predictions { version: <hash>, input: {...} }
   return replicateFetch(`/predictions`, {
     token,
     method: "POST",
     preferWaitSeconds: 45,
-    body: { version, input },
-    timeoutMs: 45000,
+    timeoutMs: 60000,
+    body: { version: versionId, input },
   });
 }
 
-async function createPredictionByOfficialModel({ model, input, token }) {
-  return replicateFetch(`/models/${model}/predictions`, {
-    token,
-    method: "POST",
-    preferWaitSeconds: 45,
-    body: { input },
-    timeoutMs: 45000,
-  });
+async function fetchPrediction({ token, id }) {
+  return replicateFetch(`/predictions/${id}`, { token, timeoutMs: 60000 });
 }
 
-async function fetchPrediction(id, token) {
-  return replicateFetch(`/predictions/${id}`, { token, timeoutMs: 45000 });
+/**
+ * Replicate output can be:
+ * - string URL
+ * - array of URLs
+ * - object(s)
+ */
+function firstOutputUrl(output) {
+  if (!output) return null;
+  if (typeof output === "string") return output;
+
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      const u = firstOutputUrl(item);
+      if (u) return u;
+    }
+    return null;
+  }
+
+  if (typeof output === "object") {
+    const candidates = [output.url, output.image, output.output, output.result, output.href, output.file];
+    for (const c of candidates) {
+      const u = firstOutputUrl(c);
+      if (u) return u;
+    }
+    for (const v of Object.values(output)) {
+      if (typeof v === "string" && v.startsWith("http")) return v;
+      const u = firstOutputUrl(v);
+      if (u) return u;
+    }
+  }
+  return null;
 }
 
 function getQueryParam(req, key) {
@@ -171,14 +163,15 @@ function getQueryParam(req, key) {
   }
 }
 
-async function pollWithinBudget(id, token, budgetMs) {
+async function pollWithinBudget({ token, id, budgetMs = 55000 }) {
   const started = Date.now();
   let delay = 900;
 
   while (true) {
-    const p = await fetchPrediction(id, token);
+    const p = await fetchPrediction({ token, id });
 
     if (p.status === "succeeded") return { done: true, prediction: p };
+
     if (p.status === "failed" || p.status === "canceled") {
       const err = new Error(p.error || "Prediction failed");
       err.httpStatus = 502;
@@ -203,13 +196,13 @@ export default async function handler(req, res) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return sendJson(res, 500, { ok: false, error: "Missing REPLICATE_API_TOKEN env var." });
 
-  // GET: poll
+  // GET: poll status
   if (req.method === "GET") {
     const id = getQueryParam(req, "id");
     if (!id) return sendJson(res, 400, { ok: false, error: "Missing query param: id" });
 
     try {
-      const p = await fetchPrediction(id, token);
+      const p = await fetchPrediction({ token, id });
       return sendJson(res, 200, {
         ok: true,
         predictionId: p.id,
@@ -229,7 +222,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // POST: create
+  // POST: create prediction
   if (req.method !== "POST") return sendJson(res, 405, { ok: false, error: "Method not allowed. Use POST." });
 
   let body;
@@ -241,84 +234,49 @@ export default async function handler(req, res) {
 
   const {
     imageBase64,
-    image, // alias
+    image, // your frontend sends `image`
     imageUrl,
     mimeType = "image/jpeg",
-    styleUrl,
-    styleBase64,
-    mode = "nst",
-    sdxlPrompt,
-    sdxlNegativePrompt,
-    promptStrength,
-    guidanceScale,
-    numInferenceSteps,
+
+    prompt,
+    negative_prompt,
+    num_inference_steps,
+    guidance_scale,
+    strength,
     seed,
   } = body || {};
 
   const content = imageUrl || normalizeToDataUrl(imageBase64 || image, mimeType);
   if (!content) return sendJson(res, 400, { ok: false, error: "Provide imageUrl OR image/imageBase64." });
 
-  const envDefaultStyle = process.env.DEFAULT_STYLE_URL || null;
-  const style = styleUrl || normalizeToDataUrl(styleBase64, "image/jpeg") || envDefaultStyle;
-
-  if (!style) {
-    return sendJson(res, 400, {
-      ok: false,
-      error: "Missing style. Provide styleUrl/styleBase64 OR set DEFAULT_STYLE_URL.",
-    });
-  }
-
   try {
-    let created = null;
-    let modelUsed = null;
+    const versionId = await getLatestVersionId(token);
 
-    if (mode === "sdxl") {
-      const prompt =
-        sdxlPrompt ||
-        "same subject and composition as the input photo, preserve exact silhouette, folds, edges and facial structure, render with thick oil paint impasto and swirling brushstrokes inspired by Vincent van Gogh's The Starry Night, vivid blues and yellows";
+    const input = {
+      image: content,
+      prompt: typeof prompt === "string" && prompt.trim() ? prompt : DEFAULT_PROMPT,
+      negative_prompt:
+        typeof negative_prompt === "string" && negative_prompt.trim() ? negative_prompt : DEFAULT_NEGATIVE,
 
-      const negative =
-        sdxlNegativePrompt ||
-        "text, watermark, logo, words, label, bottle, perfume, product, face swap, different person, deformed, extra limbs, cartoon, low quality, blurry, artifacts";
+      // model params (safe defaults)
+      num_inference_steps: typeof num_inference_steps === "number" ? num_inference_steps : 35,
+      guidance_scale: typeof guidance_scale === "number" ? guidance_scale : 12.0,
+      strength: typeof strength === "number" ? strength : 0.8,
+    };
 
-      const input = {
-        prompt,
-        negative_prompt: negative,
-        image: content,
-        prompt_strength: typeof promptStrength === "number" ? promptStrength : 0.22,
-        guidance_scale: typeof guidanceScale === "number" ? guidanceScale : 6.5,
-        num_inference_steps: typeof numInferenceSteps === "number" ? numInferenceSteps : 30,
-      };
-      if (typeof seed === "number") input.seed = seed;
+    if (typeof seed === "number") input.seed = seed;
 
-      created = await createPredictionByOfficialModel({ model: SDXL_OFFICIAL, input, token });
-      modelUsed = SDXL_OFFICIAL;
-    } else {
-      let vId = null;
+    const created = await createPrediction({ token, versionId, input });
 
-      try {
-        vId = await getLatestVersionId(NST_PRIMARY.owner, NST_PRIMARY.name, token);
-        modelUsed = `${NST_PRIMARY.owner}/${NST_PRIMARY.name}`;
-      } catch {
-        vId = await getLatestVersionId(NST_FALLBACK.owner, NST_FALLBACK.name, token);
-        modelUsed = `${NST_FALLBACK.owner}/${NST_FALLBACK.name}`;
-      }
-
-      const version = `${modelUsed}:${vId}`;
-      const input = { content, style };
-
-      created = await createPredictionByVersion({ version, input, token });
-    }
-
-    // Try to finish within ~55s, otherwise return 202 for frontend polling
-    const polled = await pollWithinBudget(created.id, token, 55000);
+    // Try to finish quickly within ~55s to avoid function timeout
+    const polled = await pollWithinBudget({ token, id: created.id, budgetMs: 55000 });
 
     if (polled.done) {
       const done = polled.prediction;
       return sendJson(res, 200, {
         ok: true,
-        mode,
-        model: modelUsed,
+        model: `${MODEL_OWNER}/${MODEL_NAME}`,
+        versionId,
         predictionId: done.id,
         status: done.status,
         outputUrl: firstOutputUrl(done.output),
@@ -326,13 +284,15 @@ export default async function handler(req, res) {
       });
     }
 
+    // Not done yet -> 202 + pollUrl
     return sendJson(res, 202, {
       ok: true,
-      mode,
-      model: modelUsed,
+      model: `${MODEL_OWNER}/${MODEL_NAME}`,
+      versionId,
       predictionId: created.id,
       status: polled.prediction.status,
       pollUrl: `/api/generate?id=${encodeURIComponent(created.id)}`,
+      message: "Processing. Poll pollUrl until status is succeeded.",
     });
   } catch (err) {
     const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
