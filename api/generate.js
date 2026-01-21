@@ -1,132 +1,306 @@
-// services/geminiService.ts
+/**
+ * /api/generate.js (Vercel Serverless Function) - ESM
+ *
+ * Hybrid requirements per your request:
+ * - Use the robust "editing flow" utilities from the NST/SDXL code:
+ *   replicateFetch, getLatestVersionId, createPrediction, pollPrediction, firstOutputUrl, sendJson
+ * - Keep the SAME image importing behavior from controlnet-depth-sdxl code:
+ *   accept image | imageBase64 | imageUrl, normalizeToDataUrl()
+ * - Use ONLY: jagilley/controlnet-depth-sdxl
+ * - DEFAULT_STYLE_URL fixed to your hosted Starry Night image URL (used inside prompt reference).
+ *
+ * ENV REQUIRED:
+ *   REPLICATE_API_TOKEN
+ */
 
-type Ok200 = {
-  ok: true;
-  status: string;
-  outputUrl?: string | null;
-  output?: any;
+const REPLICATE_API_BASE = "https://api.replicate.com/v1";
+
+const MODEL_OWNER = "jagilley";
+const MODEL_NAME = "controlnet-depth-sdxl";
+
+// As requested:
+const DEFAULT_STYLE_URL = "https://www.elhamk23.art/style/Starry_Night.jpg";
+
+// In-memory cache
+let cachedLatestVersion = {
+  key: "",
+  versionId: "",
+  fetchedAt: 0,
 };
 
-type Ok202 = {
-  ok: true;
-  status: string;
-  predictionId: string;
-  pollUrl: string;
-};
+function sendJson(res, status, payload) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(payload));
+}
 
-type Err = {
-  ok: false;
-  error: string;
-  replicateStatus?: number | null;
-  replicatePayload?: any;
-};
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
-type ApiResponse = Ok200 | Ok202 | Err;
+// Keep image importing behavior (same idea as your depth-sdxl code)
+function normalizeToDataUrl(value, mimeType = "image/jpeg") {
+  if (!value || typeof value !== "string") return null;
+  if (value.startsWith("data:")) return value;
+  return `data:${mimeType};base64,${value}`;
+}
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Robust fetch helper (from NST/SDXL code)
+async function replicateFetch(
+  path,
+  { token, method = "GET", body, timeoutMs = 60000, preferWaitSeconds } = {}
+) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
 
-function extractUrl(data: any): string | null {
-  if (!data) return null;
-  if (typeof data.outputUrl === "string" && data.outputUrl.startsWith("http")) return data.outputUrl;
+  try {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+    if (preferWaitSeconds != null) headers.Prefer = `wait=${preferWaitSeconds}`;
 
-  const out = data.output;
-  if (typeof out === "string") return out;
-  if (Array.isArray(out) && typeof out[0] === "string") return out[0];
+    const resp = await fetch(`${REPLICATE_API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+
+    const text = await resp.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+
+    if (!resp.ok) {
+      const msg =
+        (data && data.detail) ||
+        (data && data.error) ||
+        (typeof data === "string" ? data : "Replicate API error");
+      const err = new Error(msg);
+      err.httpStatus = resp.status;
+      err.payload = data;
+      throw err;
+    }
+
+    return data;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function getLatestVersionId(token) {
+  const key = `${MODEL_OWNER}/${MODEL_NAME}`;
+  const now = Date.now();
+
+  if (
+    cachedLatestVersion.key === key &&
+    cachedLatestVersion.versionId &&
+    now - cachedLatestVersion.fetchedAt < 6 * 60 * 60 * 1000
+  ) {
+    return cachedLatestVersion.versionId;
+  }
+
+  const model = await replicateFetch(`/models/${MODEL_OWNER}/${MODEL_NAME}`, {
+    token,
+    timeoutMs: 60000,
+  });
+
+  const versionId = model?.latest_version?.id;
+  if (!versionId) throw new Error(`Could not resolve latest_version.id for ${key}`);
+
+  cachedLatestVersion = { key, versionId, fetchedAt: now };
+  return versionId;
+}
+
+async function createPrediction({ token, versionId, input }) {
+  // Same "create prediction" style as NST/SDXL code (POST /v1/predictions)
+  return replicateFetch(`/predictions`, {
+    token,
+    method: "POST",
+    preferWaitSeconds: 60,
+    body: { version: versionId, input },
+    timeoutMs: 60000,
+  });
+}
+
+async function fetchPrediction({ token, id }) {
+  return replicateFetch(`/predictions/${id}`, { token, timeoutMs: 60000 });
+}
+
+// Polling logic from NST/SDXL code
+async function pollPrediction(prediction, token, { maxWaitMs = 8 * 60 * 1000 } = {}) {
+  const started = Date.now();
+  let delay = 900;
+  let current = prediction;
+
+  while (true) {
+    if (!current) throw new Error("Prediction missing");
+
+    if (current.status === "succeeded") return current;
+
+    if (current.status === "failed" || current.status === "canceled") {
+      const err = new Error(current.error || "Prediction failed");
+      err.httpStatus = 502;
+      err.payload = current;
+      throw err;
+    }
+
+    if (Date.now() - started > maxWaitMs) {
+      const err = new Error("Prediction timed out");
+      err.httpStatus = 504;
+      err.payload = current;
+      throw err;
+    }
+
+    await sleep(delay);
+    delay = Math.min(Math.floor(delay * 1.35), 4000);
+
+    current = await fetchPrediction({ token, id: current.id });
+  }
+}
+
+function firstOutputUrl(output) {
+  if (!output) return null;
+
+  if (typeof output === "string") return output;
+
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      const u = firstOutputUrl(item);
+      if (u) return u;
+    }
+    return null;
+  }
+
+  if (typeof output === "object") {
+    const candidates = [
+      output.url,
+      output.image,
+      output.output,
+      output.result,
+      output.href,
+      output.file,
+      output.files,
+      output.images,
+      output.results,
+    ];
+
+    for (const c of candidates) {
+      const u = firstOutputUrl(c);
+      if (u) return u;
+    }
+
+    for (const v of Object.values(output)) {
+      if (typeof v === "string" && v.startsWith("http")) return v;
+      const u = firstOutputUrl(v);
+      if (u) return u;
+    }
+  }
 
   return null;
 }
 
-export const transformToVanGogh = async (base64Image: string): Promise<string> => {
-  // Create prediction
-  const resp = await fetch("/api/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      image: base64Image, // data URL from your uploader/compressor
+// Prompts: we reference your hosted Starry Night image in text (model is prompt-driven)
+const DEFAULT_PROMPT =
+  `A textured oil painting in the style of Vincent van Gogh's Starry Night. ` +
+  `Keep the same person and identity from the input image. Maintain exact facial features and skin tone. ` +
+  `Preserve composition and clothing. Impasto brushwork, swirling blue/yellow strokes. ` +
+  `Style reference: ${DEFAULT_STYLE_URL}`;
 
-      // optional overrides:
-      // prompt: "...",
-      // negative_prompt: "...",
-      // strength: 0.8,
-      // guidance_scale: 12,
-      // num_inference_steps: 35,
-    }),
-  });
+const DEFAULT_NEGATIVE =
+  "text, watermark, logo, words, label, different face, face swap, change identity, distorted features, deformed, extra limbs, cartoon, low quality, blurry, artifacts, photorealistic, smooth";
 
-  // Read as text first to avoid JSON.parse crash if Vercel returns HTML error page
-  const raw = await resp.text();
-  let data: ApiResponse;
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.end();
+
+  if (req.method !== "POST") {
+    return sendJson(res, 405, { error: "Method not allowed. Use POST." });
+  }
+
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) {
+    return sendJson(res, 500, { error: "Missing REPLICATE_API_TOKEN env var." });
+  }
+
+  let body;
+  try {
+    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+  } catch {
+    return sendJson(res, 400, { error: "Invalid JSON body." });
+  }
+
+  const {
+    // keep image importing behavior
+    imageBase64,
+    image, // alias
+    imageUrl,
+    mimeType = "image/jpeg",
+
+    // allow prompt overrides from frontend if you want
+    prompt,
+    negative_prompt,
+
+    // controlnet params
+    num_inference_steps,
+    guidance_scale,
+    strength,
+    seed,
+  } = body || {};
+
+  const content = imageUrl || normalizeToDataUrl(imageBase64 || image, mimeType);
+  if (!content) {
+    return sendJson(res, 400, { error: "Provide image (data URL/base64) or imageUrl." });
+  }
 
   try {
-    data = raw ? (JSON.parse(raw) as ApiResponse) : ({ ok: false, error: "Empty response" } as Err);
-  } catch {
-    console.error("Non-JSON response from /api/generate:", raw.slice(0, 800));
-    throw new Error("رد السيرفر ليس JSON. تحقق من Vercel Logs.");
+    const versionId = await getLatestVersionId(token);
+
+    const input = {
+      image: content,
+
+      // prompt logic (from your good code idea, but safe defaults)
+      prompt: typeof prompt === "string" && prompt.trim() ? prompt : DEFAULT_PROMPT,
+      negative_prompt:
+        typeof negative_prompt === "string" && negative_prompt.trim()
+          ? negative_prompt
+          : DEFAULT_NEGATIVE,
+
+      num_inference_steps: typeof num_inference_steps === "number" ? num_inference_steps : 35,
+      guidance_scale: typeof guidance_scale === "number" ? guidance_scale : 12.0,
+      strength: typeof strength === "number" ? strength : 0.8,
+    };
+
+    if (typeof seed === "number") input.seed = seed;
+
+    const created = await createPrediction({ token, versionId, input });
+    const done = await pollPrediction(created, token, { maxWaitMs: 8 * 60 * 1000 });
+
+    const outputUrl = firstOutputUrl(done.output);
+
+    return sendJson(res, 200, {
+      mode: "controlnet-depth-sdxl",
+      model: `${MODEL_OWNER}/${MODEL_NAME}`,
+      versionId,
+      predictionId: done.id,
+      status: done.status,
+      outputUrl,
+      output: done.output,
+      styleRef: DEFAULT_STYLE_URL,
+    });
+  } catch (err) {
+    const status = err.httpStatus && Number.isInteger(err.httpStatus) ? err.httpStatus : 500;
+    return sendJson(res, status, {
+      error: err.message || "Server error",
+      replicateStatus: err.httpStatus || null,
+      replicatePayload: err.payload || null,
+    });
   }
-
-  // If server returned error
-  if (!resp.ok && resp.status !== 202) {
-    const msg = (data as Err)?.error || "فشلت المعالجة في السيرفر.";
-    throw new Error(msg);
-  }
-
-  // 200: done immediately
-  if (resp.status === 200) {
-    const url = extractUrl(data);
-    if (!url) {
-      console.error("Unexpected 200 response:", data);
-      throw new Error("النتيجة رجعت بدون رابط صالح للصورة.");
-    }
-    return url;
-  }
-
-  // 202: poll
-  const d202 = data as Ok202;
-  if (!d202.pollUrl) {
-    console.error("Missing pollUrl in 202 response:", data);
-    throw new Error("السيرفر رجع 202 بدون pollUrl.");
-  }
-
-  const maxWaitMs = 6 * 60 * 1000; // 6 minutes
-  const started = Date.now();
-  let delay = 900;
-
-  while (true) {
-    if (Date.now() - started > maxWaitMs) {
-      throw new Error("انتهت مهلة الانتظار. حاول مرة أخرى.");
-    }
-
-    await sleep(delay);
-    delay = Math.min(Math.floor(delay * 1.35), 3500);
-
-    const pollResp = await fetch(d202.pollUrl, { method: "GET" });
-    const pollRaw = await pollResp.text();
-
-    let pollData: ApiResponse;
-    try {
-      pollData = pollRaw ? (JSON.parse(pollRaw) as ApiResponse) : ({ ok: false, error: "Empty poll response" } as Err);
-    } catch {
-      console.error("Non-JSON polling response:", pollRaw.slice(0, 800));
-      throw new Error("رد السيرفر ليس JSON أثناء polling. تحقق من Vercel Logs.");
-    }
-
-    if (!pollResp.ok) {
-      const msg = (pollData as Err)?.error || "فشل polling.";
-      throw new Error(msg);
-    }
-
-    const status = (pollData as any).status;
-    if (status === "succeeded") {
-      const url = extractUrl(pollData);
-      if (!url) {
-        console.error("Succeeded but no url:", pollData);
-        throw new Error("نجحت المعالجة لكن لم يرجع رابط صورة صالح.");
-      }
-      return url;
-    }
-
-    if (status === "failed" || status === "canceled") {
-      throw new Error("فشلت المعالجة داخل Replicate.");
-    }
-  }
-};
+}
