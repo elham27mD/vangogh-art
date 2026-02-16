@@ -1,62 +1,817 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>رسمات متحركة بسيطة</title>
-<style>
-  /* تنسيق الصفحة الأساسي */
-  body {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background-color: #282c34;
-    gap: 80px;
-    margin: 0;
-  }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>إلهامك للرسم | معرض الملهمين</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 
-  /* ----------------------
-     حركة الكرة النطاطة
-     ---------------------- */
-  .ball {
-    width: 60px;
-    height: 60px;
-    background-color: #ff4757; /* لون أحمر */
-    border-radius: 50%; /* لجعل الشكل دائرياً */
-    /* استدعاء الحركة: اسم الحركة، المدة، تكرار لا نهائي، ذهاب وعودة، نوع التسارع */
-    animation: bounce 0.8s infinite alternate ease-in-out;
-  }
+    <style>
+        :root {
+            --primary-dark: #2A2421;
+            --accent-gold: #D4AF37;
+            --glass-bg: rgba(255, 255, 255, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.8);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+        }
 
-  /* تعريف خطوات حركة الكرة */
-  @keyframes bounce {
-    from { transform: translateY(0); } /* نقطة البداية */
-    to { transform: translateY(-150px); } /* نقطة النهاية (ترتفع للأعلى) */
-  }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-  /* ----------------------
-     حركة المربع الدوار
-     ---------------------- */
-  .box {
-    width: 60px;
-    height: 60px;
-    background-color: #1e90ff; /* لون أزرق */
-    border-radius: 10px;
-    /* استدعاء الحركة: اسم الحركة، المدة، تكرار لا نهائي، سرعة ثابتة */
-    animation: spin 3s infinite linear;
-  }
+        /* 1. الخلفية الفنية المائية المتحركة */
+        body {
+            font-family: 'Tajawal', sans-serif;
+            color: var(--primary-dark);
+            margin: 0; padding: 0; overflow-x: hidden;
+            display: flex; flex-direction: column; min-height: 100vh;
+            background: linear-gradient(-45deg, #fdfbfb, #f3e6e8, #e0fcf0, #f3e6cf);
+            background-size: 400% 400%;
+            animation: watercolorBG 20s ease infinite;
+            position: relative;
+        }
+        
+        @keyframes watercolorBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
 
-  /* تعريف خطوات حركة المربع */
-  @keyframes spin {
-    from { transform: rotate(0deg); } /* زاوية البداية */
-    to { transform: rotate(360deg); } /* زاوية النهاية (دورة كاملة) */
-  }
-</style>
+        /* --- طبقة النجوم الشفافة --- */
+        .stars-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden; }
+        .bg-star { position: absolute; color: var(--accent-gold); opacity: 0.15; filter: blur(1px); animation: twinkle 6s infinite ease-in-out alternate; }
+        .star-s { font-size: 0.8rem; } .star-m { font-size: 1.5rem; opacity: 0.1; animation-duration: 8s; } .star-l { font-size: 2.5rem; opacity: 0.08; animation-duration: 10s; }
+        @keyframes twinkle { 0% { transform: scale(1); opacity: 0.1; } 100% { transform: scale(1.2) rotate(15deg); opacity: 0.2; } }
+
+        .glass-panel { background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); }
+
+        /* --- الهيدر والعناوين --- */
+        .app-header { text-align: center; padding-top: 35px; padding-bottom: 10px; position: relative; z-index: 1; }
+        .header-illustration { width: 100px; filter: drop-shadow(0 10px 15px rgba(212, 175, 55, 0.2)); animation: magicalFloat 4s ease-in-out infinite; }
+        @keyframes magicalFloat { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-8px) rotate(3deg); filter: drop-shadow(0 15px 25px rgba(212, 175, 55, 0.4)); } }
+        
+        .landing-content { padding: 0 20px 40px 20px; max-width: 1200px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; z-index: 1; }
+        .main-title { font-size: 2.5rem; font-weight: 900; margin-bottom: 12px; text-align: center; background: linear-gradient(to right, var(--primary-dark) 20%, var(--accent-gold) 50%, var(--primary-dark) 80%); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shineText 4s linear infinite; letter-spacing: -0.5px; }
+        @keyframes shineText { to { background-position: 200% center; } }
+        .subtitle { color: #555; font-size: 1.05rem; margin-bottom: 40px; text-align: center; font-weight: 500; max-width: 80%; line-height: 1.6; animation: fadeInReveal 1.5s ease-out forwards; opacity: 0; }
+        @keyframes fadeInReveal { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- شبكة البطاقات --- */
+        .cards-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; width: 100%; }
+        .card { border-radius: 28px; padding: 30px 15px; cursor: pointer; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); text-decoration: none; overflow: visible; }
+        .card:hover, .card:active { transform: translateY(-10px); background: rgba(255, 255, 255, 0.85); box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-color: #fff; }
+        .badge { position: absolute; top: -12px; padding: 6px 16px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; color: white; letter-spacing: 0.5px; box-shadow: 0 8px 15px rgba(0,0,0,0.15); z-index: 10; animation: floatBadge 3s ease-in-out infinite; }
+        .badge-popular { background: linear-gradient(135deg, #FFD700, #F7971E); color: #fff; }
+        .badge-speed { background: linear-gradient(135deg, #FF416C, #FF4B2B); }
+        .badge-fun { background: linear-gradient(135deg, #8E2DE2, #4A00E0); }
+        .badge-hard { background: linear-gradient(135deg, #11998e, #38ef7d); }
+        @keyframes floatBadge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+        .card-icon-circle { width: 65px; height: 65px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; background: linear-gradient(135deg, #ffffff, #f0f0f0); box-shadow: 0 10px 20px rgba(0,0,0,0.06), inset 0 2px 5px rgba(255,255,255,0.5); transition: 0.3s; }
+        .card:hover .card-icon-circle { transform: scale(1.1) rotate(5deg); }
+        .card-icon { font-size: 1.8rem; background: linear-gradient(45deg, var(--primary-dark), var(--accent-gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .card h3 { margin: 0 0 12px 0; font-size: 1.25rem; font-weight: 800; color: var(--primary-dark); }
+        .card p { font-size: 0.85rem; color: #666; margin: 0; line-height: 1.6; font-weight: 500;}
+
+        /* --- شاشة الرسم الفنية --- */
+        .screen { display: none; flex-direction: column; flex: 1; width: 100%; animation: fadeIn 0.4s ease-out; position: relative; z-index: 10; }
+        .screen.active { display: flex; }
+        .top-controls { display: flex; justify-content: space-between; align-items: center; padding: 15px 25px; }
+        .btn-back { background: var(--glass-bg); backdrop-filter: blur(10px); width: 45px; height: 45px; border-radius: 50%; border: 1px solid var(--glass-border); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--primary-dark); box-shadow: var(--glass-shadow); transition: 0.3s;}
+        .btn-back:hover { transform: scale(1.05); background: #fff;}
+        .timer-display { font-size: 1.8rem; font-weight: 900; background: linear-gradient(45deg, #FF416C, #FF4B2B); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: none; text-shadow: 0 4px 10px rgba(255, 65, 108, 0.2);}
+        .btn-finish { background: linear-gradient(135deg, var(--primary-dark), #4a403a); color: white; border: none; padding: 10px 25px; border-radius: 30px; font-weight: 800; font-size: 1rem; cursor: pointer; box-shadow: 0 10px 20px rgba(42, 36, 33, 0.2); transition: 0.3s; border: 1px solid rgba(255,255,255,0.1); }
+        .btn-finish:hover { transform: translateY(-2px); box-shadow: 0 15px 25px rgba(42, 36, 33, 0.3); }
+
+        .canvas-container-wrapper { position: relative; flex: 1; background-color: #ffffff; margin: 5px 20px 130px 20px; border-radius: 24px; border: 8px solid rgba(255, 255, 255, 0.5); box-shadow: 0 20px 50px rgba(0,0,0,0.08); overflow: hidden; touch-action: none; }
+
+        /* --- شريط الأدوات العائم --- */
+        .toolbar-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); padding: 10px 25px 15px 25px; border-radius: 40px; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 1000; width: 92%; max-width: 650px; }
+        .drag-handle { width: 100%; text-align: center; color: #aaa; padding: 5px 0; margin-top: -5px; cursor: grab; font-size: 1.2rem; opacity: 0.7; transition: 0.3s; touch-action: none; }
+        .drag-handle:hover, .drag-handle:active { opacity: 1; color: var(--primary-dark); }
+        .drag-handle:active { cursor: grabbing; }
+        .toolbar-main-row { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 15px; }
+        .tools-group { display: flex; background: rgba(0,0,0,0.04); border-radius: 20px; padding: 5px; gap: 5px; border: 1px solid rgba(255,255,255,0.5);}
+        .tool-btn { background: transparent; border: none; color: #888; width: 45px; height: 45px; border-radius: 16px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; transition: 0.3s;}
+        .tool-btn.active { background: #fff; color: var(--primary-dark); box-shadow: 0 5px 15px rgba(0,0,0,0.08); transform: scale(1.05);}
+        
+        /* --- قائمة الفرش المنبثقة --- */
+        .brush-menu {
+            position: absolute; bottom: 60px; 
+            left: -5px; /* يخلي القائمة تفتح للداخل عشان ما تنقص في الجوال */
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+            padding: 12px; border-radius: 20px; z-index: 1001; width: max-content;
+            animation: popUp 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .brush-option {
+            background: #fff; border: 2px solid transparent; color: #888;
+            width: 42px; height: 42px; border-radius: 50%; cursor: pointer;
+            font-size: 1.1rem; display: flex; align-items: center; justify-content: center;
+            transition: 0.3s; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        .brush-option:hover, .brush-option.active { transform: scale(1.15); border-color: var(--primary-dark); color: var(--primary-dark); }
+        @keyframes popUp { from { opacity: 0; transform: translateY(15px) scale(0.8); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+        .colors-group { display: flex; align-items: center; gap: 12px; overflow-x: auto; padding: 5px; scrollbar-width: none; width: 100%; mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);}
+        .colors-group::-webkit-scrollbar { display: none; }
+        .color-swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid #fff; cursor: pointer; flex-shrink: 0; transition: 0.3s; box-shadow: 0 4px 10px rgba(0,0,0,0.1);}
+        .color-swatch.active { transform: scale(1.2); outline: 2px solid var(--primary-dark); outline-offset: 2px; }
+        .color-picker-btn { width: 34px; height: 34px; border-radius: 50%; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); border: 3px solid #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; position: relative; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-shadow: 0 1px 2px rgba(0,0,0,0.5);}
+        .color-picker-btn.active { transform: scale(1.2); outline: 2px solid var(--primary-dark); outline-offset: 2px; }
+        #custom-color-input { position: absolute; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+        .size-group { display: flex; align-items: center; width: 80px; }
+        input[type="range"] { -webkit-appearance: none; width: 100%; height: 6px; background: rgba(0,0,0,0.1); border-radius: 10px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.2); border: 2px solid var(--primary-dark); cursor: pointer;}
+        .undo-btn { background: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.8); color: var(--primary-dark); font-size: 0.9rem; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; padding: 6px 15px; border-radius: 20px;}
+        .undo-btn:hover { background: #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+
+        /* --- النوافذ المنبثقة (Modals) --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.4); z-index: 2000; display: none; justify-content: center; align-items: center; backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); }
+        .modal-content { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); width: 92%; max-width: 420px; border-radius: 35px; text-align: center; overflow: hidden; position: relative; animation: zoomIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 30px 60px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.8); max-height: 90vh; overflow-y: auto;}
+        .modal-header { padding: 25px 20px 10px 20px; }
+        .modal-header h2 { margin: 0; font-size: 1.6rem; color: var(--primary-dark); font-weight: 900;}
+        .modal-body { padding: 10px 30px 30px 30px; }
+        .modal-logo { width: 90px; height: auto; display: block; margin: 0 auto 20px auto; filter: drop-shadow(0 5px 15px rgba(0,0,0,0.08)); }
+        
+        .color-roulette-display { width: 140px; height: 140px; border-radius: 50%; margin: 25px auto; background: conic-gradient(#EB5757, #F2994A, #F2C94C, #27AE60, #2D9CDB, #9B51E0, #EB5757); border: 8px solid #fff; box-shadow: 0 15px 35px rgba(0,0,0,0.15); transition: background 0.1s; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: white; text-shadow: 0 4px 10px rgba(0,0,0,0.3);}
+        .spinning { animation: spinRoulette 0.4s linear infinite; }
+        @keyframes spinRoulette { 100% { transform: rotate(360deg); } }
+        
+        .coupon-box { border: 2px dashed var(--accent-gold); padding: 15px; background: rgba(212, 175, 55, 0.05); display: inline-block; margin-bottom: 25px; border-radius: 15px; }
+        
+        .btn-action { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 16px; margin-bottom: 12px; border-radius: 20px; text-decoration: none; font-weight: 800; font-size: 1.05rem; border: none; cursor: pointer; transition: 0.3s;}
+        .btn-action:hover { transform: translateY(-3px); }
+        .btn-primary { background: linear-gradient(135deg, var(--primary-dark), #4a403a); color: white; box-shadow: 0 10px 20px rgba(42, 36, 33, 0.2); }
+        .btn-secondary { background: linear-gradient(135deg, #D4AF37, #E5C354); color: white; box-shadow: 0 10px 20px rgba(212, 175, 55, 0.3); }
+        .btn-outline { background: transparent; color: #777; font-weight: 600;}
+        .btn-outline:hover { background: rgba(0,0,0,0.05); transform: none;}
+        
+        /* ألوان أزرار التواصل الاجتماعي */
+        .btn-social { padding: 14px; border-radius: 15px; color: white; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: bold; text-decoration: none; border: none; cursor: pointer; transition: 0.3s; width: 100%; margin-bottom: 10px; }
+        .btn-social:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
+        .bg-whatsapp { background: linear-gradient(135deg, #25D366, #128C7E); }
+        .bg-twitter { background: #000000; }
+        .bg-telegram { background: linear-gradient(135deg, #0088cc, #00aaff); }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes zoomIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        @media (max-width: 600px) {
+            .cards-grid { grid-template-columns: 1fr; gap: 25px;} 
+            .toolbar-container { width: 95%; padding: 10px 20px 15px 20px;}
+            .main-title { font-size: 1.9rem; }
+            .canvas-container-wrapper { margin-bottom: 20px; } 
+        }
+    </style>
 </head>
 <body>
 
-  <div class="ball"></div>
-  <div class="box"></div>
+    <div class="stars-layer">
+        <i class="fa-solid fa-star bg-star star-s" style="top: 10%; left: 20%;"></i>
+        <i class="fa-solid fa-star bg-star star-m" style="top: 25%; left: 85%;"></i>
+        <i class="fa-solid fa-star bg-star star-s" style="top: 40%; left: 10%;"></i>
+        <i class="fa-solid fa-star bg-star star-l" style="top: 60%; left: 70%;"></i>
+        <i class="fa-solid fa-star bg-star star-s" style="top: 75%; left: 30%;"></i>
+        <i class="fa-solid fa-star bg-star star-m" style="top: 90%; left: 55%;"></i>
+        <i class="fa-solid fa-star bg-star star-s" style="top: 15%; left: 60%;"></i>
+        <i class="fa-solid fa-star bg-star star-l" style="top: 80%; left: 5%;"></i>
+        <i class="fa-solid fa-star bg-star star-s" style="top: 50%; left: 45%;"></i>
+        <i class="fa-solid fa-star bg-star star-m" style="top: 5%; left: 90%;"></i>
+        <i class="fa-solid fa-star bg-star star-s" style="top: 30%; left: 30%;"></i>
+        <i class="fa-solid fa-star bg-star star-s" style="top: 70%; left: 90%;"></i>
+    </div>
+    
+    <div id="screen-home" class="screen active">
+        <header class="app-header"><img src="https://e.top4top.io/p_366949c1c1.png" alt="Logo" class="header-illustration"></header>
+        <div class="landing-content">
+            <h1 class="main-title">عش تجربة إلهامك للرسم</h1>
+            <p class="subtitle">اختر أحد التمارين الفنية أدناه وانطلق في رحلة إبداعية مميزة.</p>
+            
+            <div class="cards-grid">
+                <div class="card glass-panel" onclick="startApp('normal', 'ارسم نفسك')">
+                    <div class="badge badge-popular">🌟 الأكثر شعبية</div>
+                    <div class="card-icon-circle"><i class="fa-solid fa-user-pen card-icon"></i></div>
+                    <h3>إرسم نفسك</h3>
+                    <p>انظر للمرآة أو تخيل ملامحك وعبّر عنها بأسلوبك الخاص.</p>
+                </div>
+                
+                <div class="card glass-panel" onclick="startApp('timer', 'اليد غير المسيطرة')">
+                    <div class="badge badge-speed">⏱️ تحدي سريع</div>
+                    <div class="card-icon-circle"><i class="fa-solid fa-hand card-icon"></i></div>
+                    <h3>اليد غير المسيطرة</h3>
+                    <p>تحدي الـ 30 ثانية! استخدم يدك اليسرى (أو اليمنى إذا كنت أعسر).</p>
+                </div>
+                
+                <div class="card glass-panel" onclick="openColorRoulette()">
+                    <div class="badge badge-fun">🎲 جرب حظك</div>
+                    <div class="card-icon-circle"><i class="fa-solid fa-palette card-icon"></i></div>
+                    <h3>لو كان للون شكل</h3>
+                    <p>اسحب لونك العشوائي، وتحدى صديقك في رسم شكل يعبر عن هذا اللون!</p>
+                </div>
+                
+                <div class="card glass-panel" onclick="startApp('continuous', 'رسم متصل')">
+                    <div class="badge badge-hard">🔥 تحدي صعب</div>
+                    <div class="card-icon-circle"><i class="fa-solid fa-signature card-icon"></i></div>
+                    <h3>رسم متصل</h3>
+                    <p>تحدي الخط الواحد. ابدأ الرسم ولا ترفع يدك حتى تنتهي تماماً.</p>
+                </div>
+            </div>
+        </div>
+        
+        <footer style="text-align: center; padding: 20px; font-size: 0.95rem; color: #777; font-weight: 600; position: relative; z-index: 1; line-height: 1.8;">
+            جميع الحقوق محفوظة لإلهامك للرسم © 2026 <br>
+            <span style="color: var(--accent-gold); font-weight: 900; font-size: 1.05rem;">رؤية وتطوير: إلهام العطار ✨</span>
+        </footer>
+    </div>
 
+    <div id="screen-canvas" class="screen" style="height: 100vh;">
+        <div class="top-controls">
+            <button class="btn-back" onclick="goHome()"><i class="fa-solid fa-arrow-right"></i></button>
+            <div id="timer-display" class="timer-display">00:30</div>
+            <button class="btn-finish" onclick="finishDrawing()">انتهيت <i class="fa-solid fa-check"></i></button>
+        </div>
+
+        <div class="canvas-container-wrapper" id="canvas-wrapper"><canvas id="c"></canvas></div>
+
+        <div class="toolbar-container glass-panel" id="draggable-toolbar">
+            <div id="drag-handle" class="drag-handle"><i class="fa-solid fa-grip-lines"></i></div>
+            
+            <div class="toolbar-main-row">
+                <div class="size-group"><input type="range" min="1" max="50" value="3" id="brush-size" oninput="updateBrushSize(this.value)"></div>
+                <div class="colors-group" id="colors-container">
+                    <div class="color-picker-btn"><i class="fa-solid fa-plus"></i><input type="color" id="custom-color-input" onchange="selectCustomColor(this.value)"></div>
+                    <div class="color-swatch" style="background-color: #ffffff;" onclick="selectColor('#ffffff', this)"></div>
+                    <div class="color-swatch" style="background-color: #000000;" onclick="selectColor('#000000', this)"></div>
+                    <div class="color-swatch" style="background-color: #F2994A;" onclick="selectColor('#F2994A', this)"></div>
+                    <div class="color-swatch" style="background-color: #2D9CDB;" onclick="selectColor('#2D9CDB', this)"></div>
+                    <div class="color-swatch" style="background-color: #EB5757;" onclick="selectColor('#EB5757', this)"></div>
+                    <div class="color-swatch active" style="background-color: #4A3B32;" onclick="selectColor('#4A3B32', this)"></div>
+                </div>
+                
+                <div class="tools-group">
+                    <button class="tool-btn" id="btn-eraser" onclick="setTool('eraser')"><i class="fa-solid fa-eraser"></i></button>
+                    
+                    <div style="position: relative;">
+                        <button class="tool-btn active" id="btn-pencil" onclick="toggleBrushMenu()"><i class="fa-solid fa-pen"></i></button>
+                        
+                        <div id="brush-menu" class="brush-menu glass-panel" style="display: none;">
+                            <button onclick="changeBrush('pencil', 'fa-pen')" class="brush-option active" id="brush-pencil" title="قلم رصاص"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="changeBrush('ink', 'fa-pen-nib')" class="brush-option" id="brush-ink" title="قلم حبر"><i class="fa-solid fa-pen-nib"></i></button>
+                            <button onclick="changeBrush('marker', 'fa-highlighter')" class="brush-option" id="brush-marker" title="قلم تظليل"><i class="fa-solid fa-highlighter"></i></button>
+                            <button onclick="changeBrush('watercolor', 'fa-paintbrush')" class="brush-option" id="brush-watercolor" title="فرشاة مائية"><i class="fa-solid fa-paintbrush"></i></button>
+                            <button onclick="changeBrush('spray', 'fa-spray-can')" class="brush-option" id="brush-spray" title="بخاخ رذاذ"><i class="fa-solid fa-spray-can"></i></button>
+                            <button onclick="changeBrush('chalk', 'fa-marker')" class="brush-option" id="brush-chalk" title="طباشير"><i class="fa-solid fa-marker"></i></button>
+                            <button onclick="changeBrush('circle', 'fa-circle-dot')" class="brush-option" id="brush-circle" title="فرشاة تنقيط"><i class="fa-solid fa-circle-dot"></i></button>
+                            <button onclick="changeBrush('neon', 'fa-bolt')" class="brush-option" id="brush-neon" title="قلم نيون مضيء"><i class="fa-solid fa-bolt"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button class="undo-btn" onclick="undo()"><i class="fa-solid fa-rotate-right"></i> تراجع خطوة</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="result-modal">
+        <div class="modal-content">
+            <div class="modal-header"><h2>الشاشة ممتعة.. لكن الورق غير!✨</h2></div>
+            <div class="modal-body">
+                
+                <div style="margin-bottom: 20px; border-radius: 15px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.1); border: 3px solid #fff;">
+                    <img id="final-result-img" src="" alt="رسمتك الفنية" style="width: 100%; height: auto; display: block; background: #fff;">
+                </div>
+                
+                <p style="color: #555; line-height: 1.6; margin-bottom: 20px; font-weight: 500; font-size: 0.95rem;">أبدعت في هذا التمرين الرقمي! تخيل كيف ستكون خطوطك على ورقنا البيج الفاخر (300 جرام)؟ ملمس الورق والافكار ورائحة الرسم لها طعم آخر.</p>
+                
+                <div class="coupon-box" style="margin-bottom: 20px; display: flex; flex-direction: column; align-items: center;">
+                    <span style="font-size: 0.8rem; color: #888;">استخدم كود الخصم</span>
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 5px;">
+                        <span style="font-size: 1.8rem; font-weight: 900; color: var(--accent-gold); letter-spacing: 2px;">ART5</span>
+                        <button onclick="copyPromoCode()" id="copy-btn" style="background: rgba(212, 175, 55, 0.1); border: 1px solid var(--accent-gold); color: var(--accent-gold); border-radius: 8px; width: 35px; height: 35px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.3s; font-size: 1.1rem;">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                    </div>
+                    <span id="copy-msg" style="display:none; color: #27AE60; font-size: 0.85rem; font-weight: bold; margin-top: 5px;">تم النسخ بنجاح! ✨</span>
+                </div>                
+                
+                <button onclick="saveImageOnly()" class="btn-action" style="background: linear-gradient(135deg, #2D9CDB, #27AE60); color: white; box-shadow: 0 10px 20px rgba(39, 174, 96, 0.2);">
+                    <i class="fa-solid fa-download"></i> حفظ اللوحة في جهازي
+                </button>
+                
+                <a href="https://artelham.vercel.app/?open=submit" target="_blank" class="btn-action btn-primary">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> شاركنا إبداعك في معرض الملهمين
+                </a>
+
+                <a href="https://salla.sa/elhamk23/gyKVZmd" target="_blank" class="btn-action btn-secondary">
+                    <i class="fa-solid fa-book-open"></i> اطلب الدفتر وعِش التجربة
+                </a>
+                
+                <button onclick="goHome()" class="btn-action btn-outline" style="margin-top: 10px;">العودة للرئيسية</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="roulette-modal">
+        <div class="modal-content">
+            <div class="modal-header"><h2 id="roulette-title">عجلة الألوان 🎨</h2></div>
+            <div class="modal-body">
+                <div id="roulette-step-1">
+                    <p style="color: #666; font-weight: 600; margin-bottom: 15px;">اضغط على الزر واكتشف لونك العشوائي للتحدي!</p>
+                    <div id="roulette-color-display" class="color-roulette-display"><i class="fa-solid fa-question"></i></div>
+                    <h3 id="roulette-color-name" style="margin-bottom:30px; color: var(--primary-dark); font-weight: 900; font-size: 1.6rem;">؟</h3>
+                    <button onclick="spinColor()" class="btn-action btn-primary" id="spin-btn"><i class="fa-solid fa-rotate"></i> اسحب لونك الآن!</button>
+                    <button onclick="closeColorRoulette()" class="btn-action btn-outline">إلغاء</button>
+                </div>
+                
+                <div id="roulette-step-2" style="display:none;">
+                    <div id="final-color-circle" style="width: 90px; height: 90px; border-radius: 50%; margin: 0 auto 20px auto; border: 5px solid #fff; box-shadow: 0 10px 25px rgba(0,0,0,0.15);"></div>
+                    <h3 style="color: var(--primary-dark); margin-bottom: 12px; font-size: 1.4rem;">لونك هو: <span id="final-color-name-text"></span>! ✨</h3>
+                    <p style="color: #666; font-size: 0.95rem; margin-bottom: 30px; line-height: 1.7;">عشان نفتح لك اللوحة بهذا اللون، <strong>تحدى صديقك</strong> وورنا مين خياله أوسع وأسرع!</p>
+                    
+                    <button onclick="shareAndUnlock()" class="btn-action btn-primary"><i class="fa-solid fa-share-nodes" style="font-size: 1.3rem;"></i> شارك التحدي للبدء</button>
+                    <button onclick="closeColorRoulette()" class="btn-action btn-outline">تراجع</button>
+                </div>
+
+                <div id="roulette-step-3" style="display:none;">
+                    <h3 style="color: var(--primary-dark); margin-bottom: 20px; font-size: 1.5rem; font-weight: 900;">اختر منصة المشاركة 🚀</h3>
+                    <p style="color: #666; font-size: 0.95rem; margin-bottom: 25px;">شارك التحدي مع أصدقائك لفتح مساحة الرسم باللون <span id="share-color-name" style="font-weight:bold; color: var(--primary-dark);"></span>!</p>
+                    
+                    <button onclick="executeShare('whatsapp')" class="btn-social bg-whatsapp"><i class="fa-brands fa-whatsapp" style="font-size: 1.4rem;"></i> واتساب</button>
+                    <button onclick="executeShare('twitter')" class="btn-social bg-twitter"><i class="fa-brands fa-x-twitter" style="font-size: 1.4rem;"></i> تويتر (X)</button>
+                    <button onclick="executeShare('telegram')" class="btn-social bg-telegram"><i class="fa-brands fa-telegram" style="font-size: 1.4rem;"></i> تيليجرام</button>
+                    <button onclick="closeColorRoulette()" class="btn-action btn-outline" style="margin-top: 15px;">إلغاء</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let canvas, currentMode = 'normal', currentTaskTitle = '', timerInterval, strokeCount = 0, canvasHistory = [], historyProcessing = false, currentColor = "#4A3B32", currentBrushType = 'pencil';
+        const LOGO_URL = "https://e.top4top.io/p_366949c1c1.png";
+        
+        // 🔥 الأصوات 
+        const timeUpSound = new Audio("https://c.top4top.io/m_36987bpv81.mp3");
+        const cheaterSound = new Audio("https://j.top4top.io/m_36980onuw1.mp3");
+
+        const randomColorsList = [
+            { hex: '#EB5757', name: 'أحمر ناري 🍎' },
+            { hex: '#F2994A', name: 'برتقالي غروب 🌅' },
+            { hex: '#F2C94C', name: 'أصفر مشرق ☀️' },
+            { hex: '#27AE60', name: 'أخضر طبيعي 🌿' },
+            { hex: '#2D9CDB', name: 'أزرق سماوي ☁️' },
+            { hex: '#9B51E0', name: 'بنفسجي خيالي 🔮' },
+            { hex: '#FF69B4', name: 'وردي زاهي 🌸' },
+            { hex: '#40E0D0', name: 'تركواز استوائي 🏝️' },
+            { hex: '#E6E6FA', name: 'لافندر هادئ 🪻' },
+            { hex: '#E52B50', name: 'أحمر أمارانث 🌺' }, 
+            { hex: '#40826D', name: 'أخضر فيريديان 🦚' }, 
+            { hex: '#0014A8', name: 'أزرق زافير 🧿' } 
+        ];
+        let finalRandomColor = {};
+
+        function openColorRoulette() {
+            document.getElementById('roulette-modal').style.display = 'flex';
+            document.getElementById('roulette-step-1').style.display = 'block';
+            document.getElementById('roulette-step-2').style.display = 'none';
+            document.getElementById('roulette-step-3').style.display = 'none';
+            document.getElementById('roulette-title').innerText = 'عجلة الألوان 🎨';
+            const display = document.getElementById('roulette-color-display');
+            display.style.background = 'conic-gradient(#EB5757, #F2994A, #F2C94C, #27AE60, #2D9CDB, #9B51E0, #EB5757)';
+            display.innerHTML = '<i class="fa-solid fa-question"></i>';
+            document.getElementById('roulette-color-name').innerText = '؟';
+            document.getElementById('spin-btn').disabled = false;
+        }
+
+        function closeColorRoulette() { document.getElementById('roulette-modal').style.display = 'none'; }
+
+        function spinColor() {
+            document.getElementById('spin-btn').disabled = true;
+            const display = document.getElementById('roulette-color-display');
+            const nameDisplay = document.getElementById('roulette-color-name');
+            display.innerHTML = ''; display.classList.add('spinning');
+            let spins = 0; const maxSpins = 20; 
+            
+            const spinInterval = setInterval(() => {
+                const random = randomColorsList[Math.floor(Math.random() * randomColorsList.length)];
+                display.style.background = random.hex; nameDisplay.innerText = random.name; spins++;
+                if (spins >= maxSpins) {
+                    clearInterval(spinInterval); display.classList.remove('spinning'); finalRandomColor = random;
+                    setTimeout(() => {
+                        document.getElementById('roulette-step-1').style.display = 'none';
+                        document.getElementById('roulette-step-2').style.display = 'block';
+                        document.getElementById('roulette-title').innerText = 'اكتمل السحب! 🎉';
+                        document.getElementById('final-color-circle').style.backgroundColor = finalRandomColor.hex;
+                        document.getElementById('final-color-name-text').innerText = finalRandomColor.name;
+                    }, 1000);
+                }
+            }, 100);
+        }
+
+        function shareAndUnlock() {
+            document.getElementById('roulette-step-2').style.display = 'none';
+            document.getElementById('roulette-step-3').style.display = 'block';
+            document.getElementById('roulette-title').innerText = 'شارك التحدي 📲';
+            document.getElementById('share-color-name').innerText = finalRandomColor.name;
+        }
+
+        function executeShare(platform) {
+            const shareText = `تحداني موقع إلهامك للرسم أرسم شكل يعبر عن اللون ${finalRandomColor.name}! 🎨 تتوقع خيالك أوسع؟ ادخل جرب حظك واسحب لونك:`;
+            const shareUrl = window.location.href;
+            const encodedText = encodeURIComponent(shareText);
+            const encodedUrl = encodeURIComponent(shareUrl);
+            
+            let finalUrl = '';
+
+            if (platform === 'whatsapp') {
+                finalUrl = `https://wa.me/?text=${encodedText} ${encodedUrl}`;
+            } else if (platform === 'twitter') {
+                finalUrl = `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`;
+            } else if (platform === 'telegram') {
+                finalUrl = `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`;
+            }
+
+            if (finalUrl) {
+                window.open(finalUrl, '_blank');
+            }
+
+            closeColorRoulette();
+            startAppWithCustomColor('normal', 'لو كان للون شكل', finalRandomColor.hex);
+        }
+        
+        function startAppWithCustomColor(mode, title, hexColor) { startApp(mode, title); selectCustomColor(hexColor); }
+
+        window.onload = function() { 
+            initCanvas(); 
+            window.addEventListener('resize', resizeCanvas); 
+            makeDraggable(document.getElementById('draggable-toolbar'), document.getElementById('drag-handle'));
+        };
+
+        function initCanvas() {
+            canvas = new fabric.Canvas('c', { isDrawingMode: true, backgroundColor: '#ffffff' });
+            canvas.freeDrawingBrush = new fabric.PencilBrush(canvas); 
+            canvas.freeDrawingBrush.color = currentColor; 
+            canvas.freeDrawingBrush.width = 3;
+            
+            canvas.on('path:created', function() { 
+                saveHistory(); 
+                if(currentMode === 'continuous') strokeCount++; 
+            });
+            
+            canvas.on('mouse:down', function(opt) { 
+                if(currentMode === 'continuous' && strokeCount >= 1) { 
+                    canvas.isDrawingMode = false; 
+                    
+                    // تشغيل صوت الغشاش
+                    try { 
+                        cheaterSound.currentTime = 0; 
+                        cheaterSound.play(); 
+                    } catch(e) {}
+                    
+                    document.getElementById('cheater-alert').style.display = 'block'; 
+                    setTimeout(()=> document.getElementById('cheater-alert').style.display = 'none', 2000); 
+                } 
+            });
+            resizeCanvas();
+        }
+
+        function resizeCanvas() { 
+            const wrapper = document.getElementById('canvas-wrapper'); 
+            if(wrapper && canvas) { 
+                let w = wrapper.clientWidth || wrapper.offsetWidth;
+                let h = wrapper.clientHeight || wrapper.offsetHeight;
+                if (w > 0 && h > 0) {
+                    canvas.setWidth(w); 
+                    canvas.setHeight(h); 
+                    canvas.renderAll(); 
+                }
+            } 
+        }
+function startApp(mode, title) {
+            
+            // 🔥 الخدعة السحرية لفك قفل الأصوات (خليناها مكتومة عشان ما تفجعك!)
+            timeUpSound.muted = true;
+            cheaterSound.muted = true;
+            
+            try {
+                timeUpSound.play().then(() => {
+                    timeUpSound.pause();
+                    timeUpSound.currentTime = 0;
+                    timeUpSound.muted = false; // نرجع الصوت طبيعي بعد ما انفك القفل
+                }).catch(e => { timeUpSound.muted = false; });
+                
+                cheaterSound.play().then(() => {
+                    cheaterSound.pause();
+                    cheaterSound.currentTime = 0;
+                    cheaterSound.muted = false; // نرجع الصوت طبيعي
+                }).catch(e => { cheaterSound.muted = false; });
+            } catch(e) {}
+
+            currentMode = mode; currentTaskTitle = title; strokeCount = 0; canvasHistory = []; 
+            canvas.clear(); canvas.setBackgroundColor('#ffffff', canvas.renderAll.bind(canvas));
+            
+            canvas.isDrawingMode = true; 
+            
+            document.getElementById('screen-home').classList.remove('active'); 
+            document.getElementById('screen-canvas').classList.add('active');
+            
+            setTool('pencil'); selectColor('#4A3B32', document.querySelector('.color-swatch.active'));
+            if (mode === 'timer') { document.getElementById('timer-display').style.display = 'block'; startTimer(30); } else { document.getElementById('timer-display').style.display = 'none'; }
+            
+            const tb = document.getElementById('draggable-toolbar');
+            if(tb) {
+                tb.style.top = '';
+                tb.style.left = '50%';
+                tb.style.bottom = '30px';
+                tb.style.transform = 'translateX(-50%)';
+            }
+
+            setTimeout(() => {
+                resizeCanvas();
+                saveHistory();
+            }, 300); 
+        }
+
+        function goHome() { clearInterval(timerInterval); document.getElementById('screen-canvas').classList.remove('active'); document.getElementById('screen-home').classList.add('active'); document.getElementById('result-modal').style.display = 'none'; document.getElementById('roulette-modal').style.display = 'none'; }
+
+        function toggleBrushMenu() {
+            const menu = document.getElementById('brush-menu');
+            const isEraserActive = document.getElementById('btn-eraser').classList.contains('active');
+            
+            if (menu.style.display === 'none' || menu.style.display === '') {
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById('btn-pencil').classList.add('active');
+                
+                if(isEraserActive) {
+                    changeBrush(currentBrushType, document.getElementById('btn-pencil').firstElementChild.className.replace('fa-solid ', ''));
+                }
+                menu.style.display = 'grid'; 
+            } else {
+                menu.style.display = 'none';
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            const menu = document.getElementById('brush-menu');
+            const pencilBtn = document.getElementById('btn-pencil');
+            if (menu && menu.style.display === 'grid' && !pencilBtn.contains(event.target) && !menu.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        function hexToRgba(hex, alpha) {
+            if (hex.startsWith('#')) {
+                let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            }
+            return hex;
+        }
+
+        function changeBrush(type, iconClass) {
+            currentBrushType = type;
+            const size = parseInt(document.getElementById('brush-size').value, 10);
+            
+            document.getElementById('btn-pencil').innerHTML = `<i class="fa-solid ${iconClass}"></i>`;
+            document.querySelectorAll('.brush-option').forEach(b => b.classList.remove('active'));
+            document.getElementById(`brush-${type}`).classList.add('active');
+            
+            if (type === 'pencil') {
+                canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+            } else if (type === 'ink') {
+                canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+                canvas.freeDrawingBrush.decimate = 2; 
+            } else if (type === 'marker') {
+                canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+            } else if (type === 'spray') {
+                canvas.freeDrawingBrush = new fabric.SprayBrush(canvas);
+                canvas.freeDrawingBrush.dotWidth = 2;
+                canvas.freeDrawingBrush.dotWidthVariance = 2;
+                canvas.freeDrawingBrush.density = 15; 
+                canvas.freeDrawingBrush.randomOpacity = true;
+            } else if (type === 'chalk') {
+                canvas.freeDrawingBrush = new fabric.SprayBrush(canvas);
+                canvas.freeDrawingBrush.dotWidth = 5; 
+                canvas.freeDrawingBrush.dotWidthVariance = 3;
+                canvas.freeDrawingBrush.density = 120; 
+                canvas.freeDrawingBrush.randomOpacity = false;
+            } else if (type === 'circle') {
+                canvas.freeDrawingBrush = new fabric.CircleBrush(canvas);
+            } else if (type === 'watercolor') {
+                canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+                canvas.freeDrawingBrush.shadow = new fabric.Shadow({ blur: Math.max(5, size / 2), offsetX: 0, offsetY: 0, affectStroke: true, color: currentColor });
+            } else if (type === 'neon') {
+                canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+                canvas.freeDrawingBrush.shadow = new fabric.Shadow({ blur: size + 5, offsetX: 0, offsetY: 0, affectStroke: true, color: currentColor });
+            }
+            
+            updateBrushSize(size); 
+            updateBrushColor(currentColor);
+            
+            document.getElementById('brush-menu').style.display = 'none';
+            document.getElementById('btn-eraser').classList.remove('active');
+            document.getElementById('btn-pencil').classList.add('active');
+        }
+
+        function setTool(tool) {
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active')); 
+            document.getElementById(`btn-${tool}`).classList.add('active');
+            
+            const menu = document.getElementById('brush-menu');
+            if(menu) menu.style.display = 'none';
+            
+            const size = parseInt(document.getElementById('brush-size').value, 10);
+            
+            if (tool === 'pencil') { 
+                changeBrush(currentBrushType, document.getElementById('btn-pencil').firstElementChild.className.replace('fa-solid ', ''));
+            } else { 
+                canvas.freeDrawingBrush = new fabric.PencilBrush(canvas); 
+                canvas.freeDrawingBrush.color = "#ffffff"; 
+                canvas.freeDrawingBrush.width = size * 3; 
+                canvas.freeDrawingBrush.shadow = null;
+            }
+        }
+
+        function updateBrushColor(color) {
+            if (!document.getElementById('btn-eraser').classList.contains('active')) {
+                if (currentBrushType === 'marker') {
+                    canvas.freeDrawingBrush.color = hexToRgba(color, 0.4); 
+                } else if (currentBrushType === 'neon') {
+                    canvas.freeDrawingBrush.color = '#ffffff'; 
+                } else {
+                    canvas.freeDrawingBrush.color = color;
+                }
+                
+                if ((currentBrushType === 'watercolor' || currentBrushType === 'neon') && canvas.freeDrawingBrush.shadow) {
+                    canvas.freeDrawingBrush.shadow.color = color; 
+                }
+            }
+        }
+
+        function selectColor(color, element) {
+            currentColor = color; document.querySelectorAll('.color-swatch, .color-picker-btn').forEach(el => el.classList.remove('active'));
+            if(element) element.classList.add('active');
+            updateBrushColor(color);
+        }
+
+        function selectCustomColor(color) {
+            currentColor = color; document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('active'));
+            document.querySelector('.color-picker-btn').classList.add('active'); document.getElementById('custom-color-input').value = color;
+            updateBrushColor(color);
+        }
+
+        function updateBrushSize(val) { 
+            const size = parseInt(val, 10);
+            
+            if (currentBrushType === 'ink') canvas.freeDrawingBrush.width = size * 0.5;
+            else if (currentBrushType === 'marker') canvas.freeDrawingBrush.width = size * 2;
+            else if (currentBrushType === 'spray') canvas.freeDrawingBrush.width = size * 3; 
+            else if (currentBrushType === 'chalk') canvas.freeDrawingBrush.width = size * 1.2; 
+            else canvas.freeDrawingBrush.width = size;
+
+            if (document.getElementById('btn-eraser').classList.contains('active')) canvas.freeDrawingBrush.width = size * 3;
+            
+            if (currentBrushType === 'watercolor' && canvas.freeDrawingBrush.shadow) canvas.freeDrawingBrush.shadow.blur = Math.max(5, size / 2);
+            if (currentBrushType === 'neon' && canvas.freeDrawingBrush.shadow) canvas.freeDrawingBrush.shadow.blur = size + 5;
+        }
+
+        function saveHistory() { if(!historyProcessing) { if(canvasHistory.length > 10) canvasHistory.shift(); canvasHistory.push(JSON.stringify(canvas)); } }
+
+        function undo() {
+            if (canvasHistory.length > 1) { historyProcessing = true; canvasHistory.pop(); canvas.loadFromJSON(canvasHistory[canvasHistory.length - 1], function() { canvas.renderAll(); historyProcessing = false; if(currentMode === 'continuous' && strokeCount > 0) strokeCount--; }); }
+            else if (canvasHistory.length === 1) { canvas.clear(); canvas.setBackgroundColor('#ffffff', canvas.renderAll.bind(canvas)); strokeCount = 0; }
+        }
+
+        function startTimer(seconds) {
+            let timeLeft = seconds; 
+            document.getElementById('timer-display').innerText = `00:${timeLeft}`; 
+            clearInterval(timerInterval);
+            
+            try { timeUpSound.currentTime = 0; } catch(e) {}
+            
+            timerInterval = setInterval(() => { 
+                timeLeft--; 
+                document.getElementById('timer-display').innerText = `00:${timeLeft < 10 ? '0' + timeLeft : timeLeft}`; 
+                
+                // تشغيل الصوت في آخر 3 ثواني
+                if (timeLeft === 3) {
+                    try { timeUpSound.play(); } catch(e) {}
+                }
+                
+                if (timeLeft <= 0) { 
+                    clearInterval(timerInterval); 
+                    finishDrawing(); 
+                } 
+            }, 1000);
+        }
+
+        function finishDrawing() {
+            clearInterval(timerInterval);
+            fabric.Image.fromURL(LOGO_URL, function(img) {
+                img.set({ left: canvas.width - 15, top: 15, scaleX: 0.4, scaleY: 0.4, opacity: 0.8, originX: 'right', originY: 'top' });
+                canvas.add(img); 
+                canvas.renderAll(); 
+                
+                const dataURL = canvas.toDataURL({ format: 'png', multiplier: 2 });
+                document.getElementById('final-result-img').src = dataURL;
+                document.getElementById('result-modal').style.display = 'flex';
+                
+            }, { crossOrigin: 'anonymous' });
+        }
+
+        function saveImageOnly() {
+            const dataURL = document.getElementById('final-result-img').src;
+            const link = document.createElement('a'); 
+            link.download = `إلهامك - ${currentTaskTitle}.png`; 
+            link.href = dataURL; 
+            document.body.appendChild(link); 
+            link.click(); 
+            document.body.removeChild(link);
+        }
+
+        function makeDraggable(elmnt, handle) {
+            var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            
+            handle.onmousedown = dragMouseDown;
+            handle.ontouchstart = dragTouchStart;
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function dragTouchStart(e) {
+                pos3 = e.touches[0].clientX;
+                pos4 = e.touches[0].clientY;
+                document.ontouchend = closeDragElement;
+                document.ontouchmove = elementDragTouch;
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                updatePosition();
+            }
+
+            function elementDragTouch(e) {
+                e.preventDefault(); 
+                pos1 = pos3 - e.touches[0].clientX;
+                pos2 = pos4 - e.touches[0].clientY;
+                pos3 = e.touches[0].clientX;
+                pos4 = e.touches[0].clientY;
+                updatePosition();
+            }
+
+            function updatePosition() {
+                elmnt.style.transform = 'none'; 
+                elmnt.style.bottom = 'auto'; 
+                
+                let newTop = elmnt.offsetTop - pos2;
+                let newLeft = elmnt.offsetLeft - pos1;
+                
+                if(newTop < 0) newTop = 0;
+                if(newLeft < 0) newLeft = 0;
+                if(newTop + elmnt.offsetHeight > window.innerHeight) newTop = window.innerHeight - elmnt.offsetHeight;
+                if(newLeft + elmnt.offsetWidth > window.innerWidth) newLeft = window.innerWidth - elmnt.offsetWidth;
+
+                elmnt.style.top = newTop + "px";
+                elmnt.style.left = newLeft + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+                document.ontouchend = null;
+                document.ontouchmove = null;
+            }
+        }
+
+        function copyPromoCode() {
+            navigator.clipboard.writeText('ART5').then(() => {
+                const copyBtn = document.getElementById('copy-btn');
+                const copyMsg = document.getElementById('copy-msg');
+                
+                copyBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                copyBtn.style.backgroundColor = '#27AE60';
+                copyBtn.style.color = 'white';
+                copyBtn.style.borderColor = '#27AE60';
+                copyMsg.style.display = 'block';
+
+                setTimeout(() => {
+                    copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+                    copyBtn.style.backgroundColor = 'rgba(212, 175, 55, 0.1)';
+                    copyBtn.style.color = 'var(--accent-gold)';
+                    copyBtn.style.borderColor = 'var(--accent-gold)';
+                    copyMsg.style.display = 'none';
+                }, 2000);
+            });
+        }
+    </script>
+    <div id="cheater-alert" class="cheater-alert" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:linear-gradient(135deg, #ff0844 0%, #ffb199 100%); color:white; padding:25px 40px; border-radius:20px; z-index:2000; font-weight:900; font-size:1.5rem; box-shadow: 0 20px 50px rgba(255,8,68,0.4); border: 2px solid #fff;">كشفناك يا غشاش! 🚫</div>
 </body>
 </html>
