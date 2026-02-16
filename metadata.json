@@ -1,7 +1,0 @@
-{
-  "name": "Van Gogh AI Art Transformer",
-  "description": "Transform your favorite photos into timeless Van Gogh style oil paintings and discover your artistic potential.",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}
