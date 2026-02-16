@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>رسمات متحركة بسيطة</title>
+<style>
+  /* تنسيق الصفحة الأساسي */
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #282c34;
+    gap: 80px;
+    margin: 0;
+  }
+
+  /* ----------------------
+     حركة الكرة النطاطة
+     ---------------------- */
+  .ball {
+    width: 60px;
+    height: 60px;
+    background-color: #ff4757; /* لون أحمر */
+    border-radius: 50%; /* لجعل الشكل دائرياً */
+    /* استدعاء الحركة: اسم الحركة، المدة، تكرار لا نهائي، ذهاب وعودة، نوع التسارع */
+    animation: bounce 0.8s infinite alternate ease-in-out;
+  }
+
+  /* تعريف خطوات حركة الكرة */
+  @keyframes bounce {
+    from { transform: translateY(0); } /* نقطة البداية */
+    to { transform: translateY(-150px); } /* نقطة النهاية (ترتفع للأعلى) */
+  }
+
+  /* ----------------------
+     حركة المربع الدوار
+     ---------------------- */
+  .box {
+    width: 60px;
+    height: 60px;
+    background-color: #1e90ff; /* لون أزرق */
+    border-radius: 10px;
+    /* استدعاء الحركة: اسم الحركة، المدة، تكرار لا نهائي، سرعة ثابتة */
+    animation: spin 3s infinite linear;
+  }
+
+  /* تعريف خطوات حركة المربع */
+  @keyframes spin {
+    from { transform: rotate(0deg); } /* زاوية البداية */
+    to { transform: rotate(360deg); } /* زاوية النهاية (دورة كاملة) */
+  }
+</style>
+</head>
+<body>
+
+  <div class="ball"></div>
+  <div class="box"></div>
+
+</body>
+</html>
